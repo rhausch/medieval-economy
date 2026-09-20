@@ -1,4 +1,4 @@
-import type { WorldParams } from '@folk/sim';
+import type { SimEvent, WorldParams } from '@folk/sim';
 
 export interface TerrainInfo {
   id: number;
@@ -61,8 +61,43 @@ export interface TileMessage {
   resources: TileResource[];
 }
 
+export interface FolkInfo {
+  id: number;
+  x: number;
+  y: number;
+  action: string;
+  satiety: number;
+  health: number;
+  energy: number;
+}
+
+/** Positions and needs of every Folk, sent every tick. */
+export interface FolkMessage {
+  type: 'folk';
+  tick: number;
+  folk: FolkInfo[];
+}
+
+export interface FolkDetailMessage {
+  type: 'folkDetail';
+  /** Requested id; `found` is false when that Folk no longer exists (e.g. it died). */
+  id: number;
+  found: boolean;
+  folk?: FolkInfo & {
+    age: number;
+    foraging: number;
+    hunting: number;
+    inventory: { key: string; name: string; amount: number }[];
+    carried: number;
+    capacity: number;
+  };
+  /** Most recent events involving this Folk, oldest first. */
+  events: SimEvent[];
+}
+
 /** Messages the server sends to clients (binary data follows a WorldMessage or ResourcesMessage). */
-export type ServerMessage = WorldMessage | ResourcesMessage | TickMessage | TileMessage;
+export type ServerMessage =
+  WorldMessage | ResourcesMessage | TickMessage | TileMessage | FolkMessage | FolkDetailMessage;
 
 /** Messages clients send to the server. */
 export type ClientMessage =
@@ -71,4 +106,5 @@ export type ClientMessage =
   | { type: 'speed'; speed: number }
   | { type: 'subscribe'; resources: boolean }
   | { type: 'generate'; params: Partial<WorldParams> }
-  | { type: 'inspect'; x: number; y: number };
+  | { type: 'inspect'; x: number; y: number }
+  | { type: 'inspectFolk'; id: number };

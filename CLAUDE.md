@@ -14,10 +14,11 @@ TypeScript on Node 22, as a monorepo with npm workspaces:
 
 - `packages/sim`: pure simulation library (no I/O, seeded, deterministic)
 - `packages/server`: Node process that runs the sim, writes run logs, and streams deltas to the browser over WebSocket
+- `packages/runlog`: run logger (manifest, events, snapshots) used by both the server and the CLI
 - `packages/cli`: headless runner and benchmarks (same sim package)
 - `web/`: Vite client with PixiJS/WebGL; viewer and command sender only
 - data tables (terrain, later species, goods, actions) live in `packages/sim/src/data/`; world presets may move to `data/`
-- `scripts/`: Python analysis scripts
+- `scripts/`: Python analysis scripts (`summarize_run.py` summarizes a run folder)
   Tooling: ESLint, Prettier, Vitest, tinybench, GitHub Actions on PRs. Runs locally in WSL; browser on Windows reaches it via localhost.
 
 ## Architecture rules
@@ -44,7 +45,9 @@ TypeScript on Node 22, as a monorepo with npm workspaces:
 
 - `npm install`: install all workspaces (also installs git hooks)
 - `npm run dev`: sim server (ws://localhost:8787) and web client (http://localhost:5173)
-- `npm run sim -- --seed 1 --ticks 1000`: headless run
+- `npm run sim -- --seed 1 --ticks 1000`: headless run that writes a log to `experiments/output/<run-id>/`; options `--folk N`, `--size N`, `--snapshot-interval N`, `--moves` (log every step), `--no-log`
+- `python3 scripts/summarize_run.py [run_dir]`: summarize a run (defaults to the newest)
+- `PORT=8799 npm run start -w @folk/server` and `VITE_SERVER_PORT=8799 npx vite --port 5199` (in `web/`): run on other ports, e.g. beside a dev session. Stop test processes by PID, never by port, since the user may be running `npm run dev`.
 - `npm test`: Vitest; `npm run test:watch` for watch mode
 - `npm run lint`, `npm run format`, `npm run typecheck`
 - `npm run check`: lint, format check, typecheck and tests (what CI runs)

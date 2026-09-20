@@ -6,6 +6,9 @@ import type {
 } from '../../packages/server/src/protocol';
 
 export type {
+  FolkDetailMessage,
+  FolkInfo,
+  FolkMessage,
   SpeciesInfo,
   TerrainInfo,
   TickMessage,

@@ -12,17 +12,18 @@ Scope of the current layer: the base world and the entities that live in it. No 
 
 ## Entity: Folk
 
-Generic `Entity` (id, position) with `Folk` as the first kind. Animals and plants are NOT entities.
+Generic `Entity` (id, position) with `Folk` as the first kind. Animals and plants are NOT entities. Folk are stored as typed-array columns (one slot per Folk), not objects.
 
-**Stats (v1):** `satiety` (0-100, decays each tick; starvation damages health), `health` (0-100), `energy` (0-100), `age`, `position`, `skills` (`foraging`, `hunting`; 0-1, grow with use), `currentAction`.
+**Stats (implemented):** `satiety` (0-100, decays 0.12 per tick; at 0, health drops), `health` (0-100; regenerates slowly while well fed), `energy` (0-100; spent by moving, restored by resting), `age`, `position`, `skills` (`foraging`, `hunting`; present but not yet used), `currentAction` (idle, moving, eating, resting).
 
-**Inventory:** map of good to quantity, with a carry limit by weight. Goods are data-driven. v1 goods: plant food and meat (both edible, different food value). More goods, such as hides, are a data change.
+**Inventory:** a quantity per good, with a carry limit by weight. Goods are a data table (v1: plant food, meat). The inventory is shown in the inspector but stays empty until gathering exists (milestone 5); for now eating takes plant stock directly from the tile.
 
-**Behaviour (v1):** needs-driven. Hungry with no food: pick the best available food action and go do it. Tired: rest. Eat from inventory when hungry.
+**Population:** 20 Folk (configurable), spawned around a single **settlement**: the best of several random walkable tiles within 4 tiles of water, scored by the plant food nearby. A Folk that dies (starvation) is replaced at the settlement with a new one (new id, fresh stats), so the population stays constant; both events are logged.
 
-**Perception (v1):** full map knowledge. Access goes through a `perceive(entity)` interface so a radius and memory can replace it later without touching behaviour code.
+**Behaviour (baseline, rule-based):** hungry (satiety below 45): eat plant food on the current tile if there is at least 8 units, otherwise walk toward the nearest reachable tile with food (breadth-first search over walkable tiles, so it routes around water and mountains), otherwise wander. Not hungry: rest when energy is low (until 60), otherwise wander (random step, sometimes standing still). One tile per tick.
+Decision making is swappable behind the interface described under Behaviour; this baseline is the first framework.
 
-**Lifecycle (v1):** can die (starvation, injury). No births. To keep population fixed, a new Folk spawns at the spawn point when one dies (logged as a `spawn` event). This is a stand-in until births exist.
+**Perception (v1):** full map knowledge within the food search depth (60 tiles), stand-in for the perception and memory to come.
 
 ## World
 
@@ -67,13 +68,13 @@ Success and yield scale with skill and local density, so sparse tiles are harder
 
 ## Logging (for Python analysis)
 
-Each run writes `experiments/output/<run-id>/`:
+Implemented in `packages/runlog`, used by both the server and the headless CLI. Each run writes `experiments/output/<run-id>/` (git-ignored):
 
-- `manifest.json`: full config, seed, code version (git commit), start time.
-- `events.jsonl`: append-only; `tick`, `type`, `entityId`, `tile`, payload. Types include move, forage, hunt, eat, rest, injure, die, spawn, and user actions.
-- `entities.csv`: periodic snapshot of every Folk's stats and inventory.
-- `tiles.csv`: periodic snapshot of resource fields (aggregated if large).
-  Determinism means a replay from manifest reproduces the logs exactly; use that as a test.
+- `manifest.json`: run id, start and end time, ticks, seed, full world parameters, ecology interval, Folk count, snapshot interval, species and goods lists, settlement, git commit and dirty flag, Node version, and extra fields such as the decider. Finalized (end time, tick count) when the run closes, including on server shutdown.
+- `events.jsonl`: append-only, one JSON object per line with `tick`, `type` and the fields of that type. Types now: `spawn` (initial or replacement), `eat`, `die`, and optionally `move` (one per step; off by default because of volume). Gathering, hunting, injury and user actions arrive with their features.
+- `entities.csv`: a snapshot of every Folk every N ticks (default 10) plus a final one: stats, action, skills and inventory columns.
+- `resources.csv`: total stock per species at the same snapshot ticks. Full per-tile snapshots are not written yet.
+  `scripts/summarize_run.py` summarizes a run with the standard library; the files also load directly into pandas. Determinism means a replay from the manifest should reproduce the logs; an automated replay check is still to do.
 
 ## Extension points (planned, not built)
 

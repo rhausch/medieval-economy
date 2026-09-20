@@ -10,3 +10,7 @@ export {
 } from './data/terrain';
 export { createEcology, stepEcology, speciesTotals, type Ecology } from './ecology';
 export { SPECIES_LIST, type SpeciesDef, type PlantDef, type AnimalDef } from './data/species';
+export { GOODS_LIST, type GoodDef } from './data/goods';
+export { FOLK, FOLK_ACTIONS, type FolkAction } from './data/folk';
+export type { FolkStore } from './folk/store';
+export type { SimEvent } from './events';
