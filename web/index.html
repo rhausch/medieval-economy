@@ -4,14 +4,38 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Medieval Economy</title>
+    <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <main>
-      <h1>Medieval Economy</h1>
-      <p>Connection: <span id="status">connecting...</span></p>
-      <p>Tick: <span id="tick">-</span></p>
-      <button id="toggle" disabled>Pause</button>
-    </main>
+    <div id="app">
+      <div id="view"></div>
+      <aside id="panel">
+        <section>
+          <h1>Medieval Economy</h1>
+          <p class="muted">
+            <span id="status">connecting...</span> · tick <span id="tick">-</span>
+          </p>
+          <button id="toggle" disabled>Pause</button>
+        </section>
+        <section>
+          <h2>World</h2>
+          <form id="params"></form>
+          <div class="row">
+            <button id="generate" disabled>Generate</button>
+            <button id="reseed" disabled>New seed</button>
+          </div>
+        </section>
+        <section>
+          <h2>Tile</h2>
+          <div id="tile" class="muted">Click a tile to inspect it.</div>
+        </section>
+        <section>
+          <h2>Legend</h2>
+          <ul id="legend"></ul>
+        </section>
+        <p class="muted small">Drag to pan, scroll to zoom.</p>
+      </aside>
+    </div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

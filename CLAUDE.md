@@ -16,7 +16,7 @@ TypeScript on Node 22, as a monorepo with npm workspaces:
 - `packages/server`: Node process that runs the sim, writes run logs, and streams deltas to the browser over WebSocket
 - `packages/cli`: headless runner and benchmarks (same sim package)
 - `web/`: Vite client with PixiJS/WebGL; viewer and command sender only
-- `data/`: actions, goods, world presets (data-driven)
+- data tables (terrain, later species, goods, actions) live in `packages/sim/src/data/`; world presets may move to `data/`
 - `scripts/`: Python analysis scripts
   Tooling: ESLint, Prettier, Vitest, tinybench, GitHub Actions on PRs. Runs locally in WSL; browser on Windows reaches it via localhost.
 
@@ -25,7 +25,7 @@ TypeScript on Node 22, as a monorepo with npm workspaces:
 - The sim is pure TypeScript: no DOM, no I/O, no `Math.random` or `Date.now`. All randomness goes through a seeded RNG. Avoid `Math.exp`/`Math.pow` and similar where cross-engine determinism matters.
 - Data-oriented storage: tiles and Folk as typed-array columns (structure-of-arrays), not per-object graphs, so hot kernels stay small and portable (worker threads, WebGPU, or Rust/WASM later if profiling demands).
 - Fixed-timestep ticks. The client renders state and never mutates the sim. The server streams deltas filtered by viewport.
-- Economic rules (goods, actions, policies) are data-driven in `data/`.
+- Economic rules and world content (terrain, species, goods, actions, policies) are data-driven tables, not hard-coded.
 - Goods are conserved: produced, consumed, decayed, or traded, never created from nothing. Tests assert this.
 - Decision making is swappable behind `decide(senses, actions, blackboard) -> Intent`; every call is timed and logged. Design for stronger planners and group behaviour: decision cost is expected to dominate.
 - Design for extension: new goods, policies and behaviours are additions, not rewrites.

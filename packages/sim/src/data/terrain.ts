@@ -24,7 +24,7 @@ export const TERRAIN = {
     walkable: false,
     color: 0x2f6fb0,
   },
-  sand: { id: 1, key: 'sand', name: 'Sand', category: 'shore', walkable: true, color: 0xd8c98a },
+  sand: { id: 1, key: 'sand', name: 'Sand', category: 'shore', walkable: true, color: 0xe6d99b },
   grass: {
     id: 2,
     key: 'grass',
@@ -47,7 +47,7 @@ export const TERRAIN = {
     name: 'Hills',
     category: 'highland',
     walkable: true,
-    color: 0x9a8f5c,
+    color: 0x93694a,
   },
   mountain: {
     id: 5,

@@ -7,5 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "pixi.js": "^8.21.0"
   }
 }
