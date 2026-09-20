@@ -4,13 +4,17 @@ Living document. Updated after every playtest. Each milestone ends with a playab
 
 ## Phase 0: Setup (current)
 - [x] Repo, CLAUDE.md, skills, doc scaffolding
+- [x] Branch protection on main (repo made public)
 - [ ] Tooling (lint, format, test, hooks) once stack is confirmed
 
-## Phase 1: Interactive design session
-Topics: success metrics, scale and world, agent model, goods and production chains, property and ownership, policy levers, UI/interaction, extension points, stack revisit, roadmap draft. Output: `docs/design.md`.
+## Phase 1: Interactive design session (current)
+- [x] Entities, stats, inventory, resource model, logging (see `docs/design.md`)
+- [x] Confirm entity name (Folk)
+- [ ] Revisit stack against requirements
+- [ ] Draft MVP milestones
 
-## Phase 2: MVP
-To be defined in the design session.
+## Phase 2: World and Folk MVP
+Base world generation with configurable parameters, four resource fields with regrowth and diffusion, fixed population of Folk that forage and hunt at two tiers, tile and entity inspection, run logging.
 
 ## Later (candidates)
-Trade and markets, currency, guilds, lords and vassals, taxation systems, disease, war and raiding.
+Perception and memory, births, more goods, seasons, groups and property, trade and markets, governance and policy experiments, disease, raiding.

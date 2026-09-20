@@ -21,7 +21,7 @@ TypeScript, Vite, Canvas 2D rendering, Vitest. No framework for the sim core.
 ## Development workflow
 - **Branching:** trunk-based. `main` is always working. Do all work on short-lived branches named `type/short-description` (`feat/`, `fix/`, `refactor/`, `docs/`, `chore/`, `test/`). Never commit directly to `main` after the initial commit.
 - **Commits:** Conventional Commits (`feat: add hunger need`, `fix(sim): ...`). Small, focused, frequent commits. Explain why in the body when it is not obvious.
-- **Pull requests:** open a PR per branch with `gh pr create`, keep it small, squash-merge to `main`, delete the branch. Confirm with the user before merging unless they have said otherwise.
+- **Pull requests:** open a PR per branch with `gh pr create`, keep it small, squash-merge to `main`, delete the branch. The user approves in chat (based on a summary of changes or a playtest), never on GitHub: present the summary, wait for chat approval, then merge.
 - **Before every commit:** lint, typecheck and tests must pass (once tooling exists). Do not commit failing code or skip hooks.
 - **Style:** the formatter and linter config are the source of truth (Prettier + ESLint with TypeScript strict mode, once installed). Prefer small pure functions, explicit types at module boundaries, and no dead code or speculative abstractions. Match surrounding code.
 - **Testing:** every sim rule gets unit tests. Determinism (same seed gives same result) and conservation tests are required for economy changes. Headless experiment runs live in `scripts/`.
