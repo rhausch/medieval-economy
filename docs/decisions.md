@@ -94,3 +94,12 @@ A `runlog` package writes manifest, events, entity and resource snapshots for ev
 ## 2026-09-20: Servers stop cleanly; test by PID on separate ports
 
 The server flushes and finalizes the run log on SIGINT/SIGTERM. Test servers run on other ports (`PORT`, `VITE_SERVER_PORT`) and are stopped by PID, because a port-based kill takes down whatever holds the port, including the user's own dev session.
+
+## 2026-09-20: Plant scarcity stand-in deferred to milestone 5
+
+The user asked to slow plant regrowth (a stand-in for seasons) rather than add Folk. Headless sweeps on the milestone 4 build (20 Folk, 256x256, seeds 1-3) showed it does not work on its own:
+
+- Slowing plant regrowth alone has a cliff: unchanged down to about 80%, then at 70% and below the animals strip the plants everywhere and Folk starve continuously (about 20 deaths per 1000 ticks). Animals eat orders of magnitude more plant food than 20 Folk.
+- Slowing plants and animal appetite together keeps the ecology stable, but Folk are never hungry even at 0.1% regrowth: 20 Folk eat far less than the standing stock of a 65,000-tile world, spread over roughly 80x100 tiles.
+- Making plant food low-calorie (satiety per unit) does create pressure, but the range is narrow and seed-dependent: with regrowth at 5% and nutrition 0.025, seeds 1 and 2 saw under 1% hungry Folk-ticks and no deaths, while seed 3 saw 28% and 64 deaths, because settlement placement changes the local food supply.
+  Decision: merge milestone 4 with the stable ecology unchanged, and build the scarcity stand-in as one tunable setting in milestone 5, tuned across several seeds, once Folk gather with real effort and competition costs. Seasons will replace it.
