@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@folk/sim": "*",
-    "ws": "^8.18.0"
+    "ws": "^8.18.0",
+    "@folk/runlog": "*"
   }
 }

@@ -1,14 +1,13 @@
 {
-  "name": "@folk/cli",
+  "name": "@folk/runlog",
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "main": "src/index.ts",
   "scripts": {
-    "start": "tsx src/main.ts",
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@folk/sim": "*",
-    "@folk/runlog": "*"
+    "@folk/sim": "*"
   }
 }

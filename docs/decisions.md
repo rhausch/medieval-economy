@@ -82,3 +82,24 @@ Four species (berries, roots and nuts, hare, deer), tiles initialised at a rando
 ## 2026-09-20: Resources streamed as one byte per tile per species
 
 Server sends compact frames at 4 Hz to subscribed clients and answers exact per-tile queries on click. Why: simple and fast at 256x256; viewport filtering and deltas are planned for 1M+ tiles.
+
+## 2026-09-20: Milestone 4 scope and baseline Folk behaviour
+
+Milestone 4 delivers 20 Folk near one settlement, rule-based behaviour (eat when hungry, walk to the nearest food by breadth-first search, rest, wander), click-to-inspect, and run logging. Deliberate scope choices: Folk eat plant stock directly from the tile because gathering into an inventory is milestone 5, so the inventory exists but is empty; death and replacement spawns were pulled forward from milestone 5 because the population must stay constant and deaths must be logged; perception is full-map within a 60-tile search depth as the v1 stand-in. Ecology stays stable, per the user; Folk barely dent it so far.
+
+## 2026-09-20: Run logging shared by server and CLI
+
+A `runlog` package writes manifest, events, entity and resource snapshots for every run, from the live server and from headless runs alike, so headless experiments and playtests produce the same analysable output. Logging one `move` event per step is opt-in because of volume; snapshots carry positions. Two runs starting in the same second get distinct folders (found by a test: `mkdir -p` does not fail on an existing folder).
+
+## 2026-09-20: Servers stop cleanly; test by PID on separate ports
+
+The server flushes and finalizes the run log on SIGINT/SIGTERM. Test servers run on other ports (`PORT`, `VITE_SERVER_PORT`) and are stopped by PID, because a port-based kill takes down whatever holds the port, including the user's own dev session.
+
+## 2026-09-20: Plant scarcity stand-in deferred to milestone 5
+
+The user asked to slow plant regrowth (a stand-in for seasons) rather than add Folk. Headless sweeps on the milestone 4 build (20 Folk, 256x256, seeds 1-3) showed it does not work on its own:
+
+- Slowing plant regrowth alone has a cliff: unchanged down to about 80%, then at 70% and below the animals strip the plants everywhere and Folk starve continuously (about 20 deaths per 1000 ticks). Animals eat orders of magnitude more plant food than 20 Folk.
+- Slowing plants and animal appetite together keeps the ecology stable, but Folk are never hungry even at 0.1% regrowth: 20 Folk eat far less than the standing stock of a 65,000-tile world, spread over roughly 80x100 tiles.
+- Making plant food low-calorie (satiety per unit) does create pressure, but the range is narrow and seed-dependent: with regrowth at 5% and nutrition 0.025, seeds 1 and 2 saw under 1% hungry Folk-ticks and no deaths, while seed 3 saw 28% and 64 deaths, because settlement placement changes the local food supply.
+  Decision: merge milestone 4 with the stable ecology unchanged, and build the scarcity stand-in as one tunable setting in milestone 5, tuned across several seeds, once Folk gather with real effort and competition costs. Seasons will replace it.
