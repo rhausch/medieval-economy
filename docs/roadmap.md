@@ -15,17 +15,27 @@ Living document. Updated after every playtest. Each milestone ends with a playab
 - [x] Revisit stack against requirements (TypeScript, Node sim server, PixiJS client)
 - [x] Draft MVP milestones
 
-## Phase 2: World and Folk MVP
+## Phase 2: World and Folk MVP (complete)
 
-Each milestone ends in something to look at or play with, followed by a feedback session and a roadmap update.
+1. **Scaffold and tooling.** npm workspaces monorepo, lint, format, tests, CI, hooks, ticking sim and connected client.
+2. **World.** Seeded biome generation from Perlin noise, terrain in the browser with pan and zoom, tile inspector.
+3. **Resources.** Species as per-tile stocks with regrowth, grazing and spreading, overlays, tile sprites, resource stats.
+4. **Folk with logging.** 20 Folk, click-to-inspect, run logging readable from Python.
+5. **Actions and decisions.** Gather, dig, snare, chase into an inventory; injury; rules and utility deciders with parameter arrays, colored by decider.
+6. **Analysis and benchmarks.** Metrics and timing, live Stats panel, `npm run bench`, pandas analysis and notebook, performance baseline.
 
-1. **Scaffold and tooling** (done). npm workspaces monorepo, ESLint, Prettier, Vitest, CI, git hooks. An empty sim that ticks and a client that connects to the server.
-2. **World** (done). Seeded, configurable world generation. Terrain rendered in the browser with pan and zoom. Click a tile to inspect it.
-3. **Resources** (done). Four resource fields with regrowth and diffusion, a toggleable overlay, and resource stocks in the tile inspector.
-4. **Folk, minimal, with basic logging** (done). A few Folk with stats and inventory who wander and eat. Click a Folk to inspect it. Run folder with `manifest.json` and `events.jsonl`, plus periodic CSV snapshots, readable from Python.
-5. **Actions and decisions** (done). Gather, dig, snare and chase. Rule-based and utility AI deciders behind the `decide()` interface, with trait and weight variation, deaths and replacement spawns.
-6. **Analysis and benchmarks** (in review). A Python notebook analysing run logs, per-decision performance logging, and the decision-time benchmark harness.
+Findings that motivated the pivot are in `docs/decisions.md` ("Findings to tune from").
+
+## Phase 3: Hunter-gatherer foundation (current)
+
+Planned in detail in `docs/foundation.md`.
+
+- [ ] **F1: calories and configuration.** One calorie reserve, metabolism, calorie costs for activities and injury healing, kg and kcal units, per-run configuration file recorded in the manifest, the energy ledger.
+- [ ] **F2: movement and goals.** Gaits, terrain and slope speed and cost, goal on the blackboard with step-by-step walking and interrupts, path shown in the inspector.
+- [ ] **F3: patchy food.** Sparse clumped patches by species, slow recovery and overgrazing, the animal food experiment switch, active-tile ecology updates, world panel controls, sustainability sweep.
+- [ ] **F4: perception and memory.** Sight radii, blackboard sightings with age, explored map, explore option, deciders using memory, giving-up density.
+- [ ] **F5: tune and evaluate.** Sweeps across seeds, rules versus utility, shared versus separate animal food, decide on a first genetic algorithm run.
 
 ## Later (candidates)
 
-Perception and memory, births, more goods, seasons, groups and property, trade and markets, governance and policy experiments, disease, raiding.
+Births and growth, storage and carrying penalties, seasons and a day and night cycle (fatigue returns with sleep), groups and shared knowledge, group hunting, property, trade and markets, a medieval setting with governance and policy experiments, disease, raiding.

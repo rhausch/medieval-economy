@@ -1,12 +1,12 @@
-# Medieval Economy Simulation
+# Hunter-Gatherer Ecology Simulation (foundation for a medieval economy)
 
-A web-based, top-down tile game (minimalist, clear graphics on a large board) for interactively experimenting with economic rules, policies and governance in a medieval setting, to see what produces growth, stability or collapse. Starts with simple Folk (foraging, hunting) and grows toward planning, groups, trade, markets, currency and governance.
+A web-based, top-down tile game (minimalist, clear graphics on a large board). The near-term project is a **hunter-gatherer ecology simulation**: individual Folk with a single calorie reserve, sparse patchy food, real movement, and memory of where food was seen. The long-term goal is unchanged: interactively experiment with economic rules, policies and governance in a medieval setting to see what produces growth, stability or collapse, built on top of this foundation (storage, groups, trade, markets, currency, governance).
 
 Development is iterative: build a small slice, playtest with the user, record feedback, update the roadmap, repeat. Do not build ahead of the roadmap.
 
 ## Status
 
-Phase 1 (interactive design session) is complete. Phase 2 (MVP) has six milestones; see `docs/roadmap.md`. See `docs/roadmap.md`, `docs/design.md`, `docs/decisions.md`.
+The MVP (six milestones) is complete. The project has pivoted to a hunter-gatherer foundation, planned in `docs/foundation.md` as milestones F1 to F5 (calories and configuration, movement and goals, patchy food, perception and memory, tuning). `docs/design.md` describes the MVP build as it is now; where it disagrees with `docs/foundation.md`, the foundation is the direction. See also `docs/roadmap.md` and `docs/decisions.md`.
 
 ## Stack
 

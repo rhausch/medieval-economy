@@ -1,5 +1,7 @@
 # Design
 
+This document describes the MVP build as it is now. The satiety, energy and health stats, the dense food, the omniscient search and the fixed 1-tile movement described here are being replaced by the hunter-gatherer foundation in `docs/foundation.md`. Logging, tracking, the deciders' parameter arrays and the tooling carry over.
+
 Scope of the current layer: the base world and the entities that live in it. No seasons, weather, groups, trade or governance yet. Stack is provisional and will be revisited after this design session.
 
 ## Guiding principles
