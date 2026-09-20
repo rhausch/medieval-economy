@@ -74,3 +74,11 @@ One pixel per tile, nearest-filtered, so 1M-tile worlds render cheaply. Sprites 
 ## 2026-09-19: Default world is large-featured and simple; variety comes from resources
 
 After playing milestone 2 the user found feature size 200 with 6 octaves ideal, and does not want a complex world, just different resource locations. Defaults changed to `noiseScale` 200 and `octaves` 6. Terrain stays a small set of broad biomes; further variety (which plants and animals live where, and how plentiful) comes from the species registry rather than more terrain types or generation complexity.
+
+## 2026-09-20: Ecology rules and starting species
+
+Four species (berries, roots and nuts, hare, deer), tiles initialised at a random fraction of capacity. Plants grow logistically from current stock with a seed bank; animals graze their diet then grow when fed and starve when not; all species spread toward equal density (conserving totals). Capacity depends on terrain affinity and moisture, which gives different resource locations without more terrain types. Appetites were tuned in a headless run: the balanced values (hare 0.15, deer 0.5 food per head per step) leave plants near 40% and animals near 70% of capacity, while stronger values strip plants to about 1%. Why: the user specified these rules and a random initial fill by tile type. Animals can go locally extinct and recolonise by spreading.
+
+## 2026-09-20: Resources streamed as one byte per tile per species
+
+Server sends compact frames at 4 Hz to subscribed clients and answers exact per-tile queries on click. Why: simple and fast at 256x256; viewport filtering and deltas are planned for 1M+ tiles.

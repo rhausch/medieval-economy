@@ -60,6 +60,7 @@ h2 {
 }
 .row {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 8px;
 }
@@ -121,4 +122,38 @@ li {
   height: 14px;
   border-radius: 2px;
   border: 1px solid rgba(255, 255, 255, 0.2);
+}
+select {
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+input[type='checkbox'] {
+  width: auto;
+}
+#speeds {
+  margin-top: 0;
+}
+#speeds button {
+  padding: 5px 7px;
+}
+#speeds button.active {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+#totals li {
+  justify-content: space-between;
+}
+.bar {
+  height: 6px;
+  background: var(--bg);
+  border-radius: 3px;
+  overflow: hidden;
+  margin: 2px 0 6px;
+}
+.bar > span {
+  display: block;
+  height: 100%;
 }

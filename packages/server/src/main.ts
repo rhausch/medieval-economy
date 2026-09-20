@@ -1,19 +1,31 @@
 import { WebSocketServer, type WebSocket } from 'ws';
-import { createSim, terrainById, TERRAIN_LIST, type Sim, type WorldParams } from '@folk/sim';
+import {
+  createSim,
+  speciesTotals,
+  SPECIES_LIST,
+  terrainById,
+  TERRAIN_LIST,
+  type Sim,
+  type WorldParams,
+} from '@folk/sim';
 import type { ClientMessage, ServerMessage } from './protocol';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const TICK_MS = 100;
+const RESOURCE_MS = 250;
 const MAX_TILES = 4096 * 4096;
+const SPEEDS = [1, 2, 5, 10, 20];
 
 let sim: Sim = createSim({ seed: Number(process.env.SEED ?? 1) });
 let paused = false;
+let speed = 1;
 
 const wss = new WebSocketServer({ port: PORT });
 const clients = new Set<WebSocket>();
+const wantsResources = new Set<WebSocket>();
 
 function tickMessage(): ServerMessage {
-  return { type: 'tick', tick: sim.tick, paused };
+  return { type: 'tick', tick: sim.tick, paused, speed };
 }
 
 function broadcast(msg: ServerMessage): void {
@@ -27,6 +39,14 @@ function sendWorld(socket: WebSocket): void {
     type: 'world',
     params: world.params,
     terrain: TERRAIN_LIST.map((t) => ({ id: t.id, name: t.name, color: t.color })),
+    species: SPECIES_LIST.map((s) => ({
+      id: s.id,
+      key: s.key,
+      name: s.name,
+      kind: s.kind,
+      color: s.color,
+      maxCapacity: s.maxCapacity,
+    })),
   };
   const n = world.width * world.height;
   const payload = new Uint8Array(n * 2);
@@ -36,8 +56,31 @@ function sendWorld(socket: WebSocket): void {
   socket.send(payload);
 }
 
+function sendResources(sockets: Iterable<WebSocket>): void {
+  const targets = [...sockets];
+  if (targets.length === 0) return;
+  const { ecology, world } = sim;
+  const n = world.width * world.height;
+  const payload = new Uint8Array(n * ecology.species.length);
+  ecology.species.forEach((def, s) => {
+    const stock = ecology.stock[s]!;
+    const cap = ecology.capacity[s]!;
+    const base = s * n;
+    for (let i = 0; i < n; i++) {
+      payload[base + i] =
+        cap[i] === 0 ? 0 : 1 + Math.round(254 * Math.min(1, stock[i]! / def.maxCapacity));
+    }
+  });
+  const meta: ServerMessage = { type: 'resources', tick: sim.tick, totals: speciesTotals(ecology) };
+  const json = JSON.stringify(meta);
+  for (const socket of targets) {
+    socket.send(json);
+    socket.send(payload);
+  }
+}
+
 function sendTile(socket: WebSocket, x: number, y: number): void {
-  const { world } = sim;
+  const { world, ecology } = sim;
   if (!Number.isInteger(x) || !Number.isInteger(y)) return;
   if (x < 0 || y < 0 || x >= world.width || y >= world.height) return;
   const i = y * world.width + x;
@@ -51,6 +94,15 @@ function sendTile(socket: WebSocket, x: number, y: number): void {
     walkable: def.walkable,
     elevation: world.elevation[i]!,
     moisture: world.moisture[i]!,
+    resources: ecology.species
+      .map((s, k) => ({
+        key: s.key,
+        name: s.name,
+        kind: s.kind,
+        stock: ecology.stock[k]![i]!,
+        capacity: ecology.capacity[k]![i]!,
+      }))
+      .filter((r) => r.capacity > 0),
   };
   socket.send(JSON.stringify(msg));
 }
@@ -64,6 +116,7 @@ function regenerate(params: Partial<WorldParams>): void {
     world: { ...params, width, height },
   });
   for (const client of clients) sendWorld(client);
+  sendResources(wantsResources);
   broadcast(tickMessage());
 }
 
@@ -71,7 +124,10 @@ wss.on('connection', (socket) => {
   clients.add(socket);
   sendWorld(socket);
   socket.send(JSON.stringify(tickMessage()));
-  socket.on('close', () => clients.delete(socket));
+  socket.on('close', () => {
+    clients.delete(socket);
+    wantsResources.delete(socket);
+  });
   socket.on('message', (raw) => {
     let msg: ClientMessage;
     try {
@@ -88,6 +144,18 @@ wss.on('connection', (socket) => {
         paused = false;
         broadcast(tickMessage());
         break;
+      case 'speed':
+        if (SPEEDS.includes(msg.speed)) speed = msg.speed;
+        broadcast(tickMessage());
+        break;
+      case 'subscribe':
+        if (msg.resources) {
+          wantsResources.add(socket);
+          sendResources([socket]);
+        } else {
+          wantsResources.delete(socket);
+        }
+        break;
       case 'generate':
         regenerate(msg.params ?? {});
         break;
@@ -100,8 +168,12 @@ wss.on('connection', (socket) => {
 
 setInterval(() => {
   if (paused) return;
-  sim.step();
+  for (let i = 0; i < speed; i++) sim.step();
   broadcast(tickMessage());
 }, TICK_MS);
+
+setInterval(() => {
+  if (!paused) sendResources(wantsResources);
+}, RESOURCE_MS);
 
 console.log(`sim server listening on ws://localhost:${PORT}`);
