@@ -15,7 +15,10 @@
           <p class="muted">
             <span id="status">connecting...</span> · tick <span id="tick">-</span>
           </p>
-          <button id="toggle" disabled>Pause</button>
+          <div class="row">
+            <button id="toggle" disabled>Pause</button>
+            <span id="speeds" class="row"></span>
+          </div>
         </section>
         <section>
           <h2>World</h2>
@@ -24,6 +27,15 @@
             <button id="generate" disabled>Generate</button>
             <button id="reseed" disabled>New seed</button>
           </div>
+        </section>
+        <section>
+          <h2>Resources</h2>
+          <label
+            >Overlay
+            <select id="overlay"></select
+          ></label>
+          <label>Tile sprites <input type="checkbox" id="sprites" checked /></label>
+          <ul id="totals"></ul>
         </section>
         <section>
           <h2>Tile</h2>

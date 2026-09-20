@@ -8,3 +8,5 @@ export {
   type TerrainDef,
   type TerrainCategory,
 } from './data/terrain';
+export { createEcology, stepEcology, speciesTotals, type Ecology } from './ecology';
+export { SPECIES_LIST, type SpeciesDef, type PlantDef, type AnimalDef } from './data/species';

@@ -1,9 +1,13 @@
 import { Application, Container, Graphics, Sprite, Texture } from 'pixi.js';
-import type { WorldData } from './net';
+import type { ResourceData, SpeciesInfo, WorldData } from './net';
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 64;
 const GRID_MIN_ZOOM = 12;
+/** Tile sprites only appear when zoomed in this far. */
+const SPRITE_MIN_ZOOM = 14;
+/** Below this fill fraction a resource is drawn as absent (bare). */
+const SPRITE_MIN_FILL = 0.04;
 const CLICK_SLOP_PX = 4;
 
 interface Selected {
@@ -11,17 +15,40 @@ interface Selected {
   y: number;
 }
 
+function circleTexture(): Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 32;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2d canvas unavailable');
+  ctx.fillStyle = '#fff';
+  ctx.beginPath();
+  ctx.arc(16, 16, 15, 0, Math.PI * 2);
+  ctx.fill();
+  return Texture.from(canvas);
+}
+
 /** Draws the world as one nearest-filtered texture (1 pixel per tile) with pan, zoom and selection. */
 export class WorldView {
   private readonly app = new Application();
   private readonly stage = new Container();
+  private readonly markers = new Container();
   private readonly grid = new Graphics();
   private readonly highlight = new Graphics();
+  private readonly markerPool: Sprite[] = [];
   private sprite: Sprite | null = null;
+  private overlay: Sprite | null = null;
+  private overlayCtx: CanvasRenderingContext2D | null = null;
+  private overlayImage: ImageData | null = null;
+  private circle: Texture | null = null;
   private width = 0;
   private height = 0;
   private zoom = 4;
   private selected: Selected | null = null;
+
+  private species: SpeciesInfo[] = [];
+  private frames: Uint8Array[] = [];
+  private overlaySpecies: number | null = null;
+  private showSprites = true;
 
   onTileClick: (x: number, y: number) => void = () => {};
 
@@ -35,7 +62,8 @@ export class WorldView {
     });
     host.appendChild(this.app.canvas);
     this.app.stage.addChild(this.stage);
-    this.stage.addChild(this.grid, this.highlight);
+    this.stage.addChild(this.markers, this.grid, this.highlight);
+    this.circle = circleTexture();
     this.bindInput(this.app.canvas);
     this.app.renderer.on('resize', () => this.redrawOverlays());
   }
@@ -43,6 +71,8 @@ export class WorldView {
   setWorld(data: WorldData): void {
     const { width, height } = data.meta.params;
     const colors = new Map(data.meta.terrain.map((t) => [t.id, t.color]));
+    this.species = data.meta.species;
+    this.frames = [];
 
     const canvas = document.createElement('canvas');
     canvas.width = width;
@@ -60,14 +90,26 @@ export class WorldView {
     }
     ctx.putImageData(image, 0, 0);
 
-    if (this.sprite) {
-      this.stage.removeChild(this.sprite);
-      this.sprite.destroy({ texture: true, textureSource: true });
+    for (const old of [this.sprite, this.overlay]) {
+      if (!old) continue;
+      this.stage.removeChild(old);
+      old.destroy({ texture: true, textureSource: true });
     }
     const texture = Texture.from(canvas);
     texture.source.scaleMode = 'nearest';
     this.sprite = new Sprite(texture);
+
+    const overlayCanvas = document.createElement('canvas');
+    overlayCanvas.width = width;
+    overlayCanvas.height = height;
+    this.overlayCtx = overlayCanvas.getContext('2d');
+    this.overlayImage = this.overlayCtx?.createImageData(width, height) ?? null;
+    const overlayTexture = Texture.from(overlayCanvas);
+    overlayTexture.source.scaleMode = 'nearest';
+    this.overlay = new Sprite(overlayTexture);
+    this.overlay.visible = false;
     this.stage.addChildAt(this.sprite, 0);
+    this.stage.addChildAt(this.overlay, 1);
 
     const resized = width !== this.width || height !== this.height;
     this.width = width;
@@ -77,9 +119,51 @@ export class WorldView {
     this.redrawOverlays();
   }
 
+  setResources(data: ResourceData): void {
+    this.frames = data.frames;
+    this.updateOverlay();
+    this.redrawMarkers();
+  }
+
+  /** Show one species as a colored heat layer over the terrain, or none. */
+  setOverlaySpecies(index: number | null): void {
+    this.overlaySpecies = index;
+    this.updateOverlay();
+  }
+
+  setShowSprites(show: boolean): void {
+    this.showSprites = show;
+    this.redrawMarkers();
+  }
+
   select(x: number, y: number): void {
     this.selected = { x, y };
     this.redrawOverlays();
+  }
+
+  private updateOverlay(): void {
+    const overlay = this.overlay;
+    const index = this.overlaySpecies;
+    const frame = index === null ? undefined : this.frames[index];
+    const species = index === null ? undefined : this.species[index];
+    if (!overlay || !this.overlayCtx || !this.overlayImage || !frame || !species) {
+      if (overlay) overlay.visible = false;
+      return;
+    }
+    const r = (species.color >> 16) & 255;
+    const g = (species.color >> 8) & 255;
+    const b = species.color & 255;
+    const data = this.overlayImage.data;
+    for (let i = 0; i < frame.length; i++) {
+      const v = frame[i]!;
+      data[i * 4] = r;
+      data[i * 4 + 1] = g;
+      data[i * 4 + 2] = b;
+      data[i * 4 + 3] = v === 0 ? 0 : 20 + Math.round((140 * (v - 1)) / 254);
+    }
+    this.overlayCtx.putImageData(this.overlayImage, 0, 0);
+    overlay.texture.source.update();
+    overlay.visible = true;
   }
 
   private fit(): void {
@@ -149,16 +233,60 @@ export class WorldView {
     return { x, y };
   }
 
-  private redrawOverlays(): void {
+  private visibleRange(): { x0: number; y0: number; x1: number; y1: number } {
     const { width: vw, height: vh } = this.app.screen;
+    const z = this.zoom;
+    return {
+      x0: Math.max(0, Math.floor(-this.stage.position.x / z)),
+      y0: Math.max(0, Math.floor(-this.stage.position.y / z)),
+      x1: Math.min(this.width, Math.ceil((vw - this.stage.position.x) / z)),
+      y1: Math.min(this.height, Math.ceil((vh - this.stage.position.y) / z)),
+    };
+  }
+
+  /** Small per-species shapes inside each visible tile; size shows how full the tile is. */
+  private redrawMarkers(): void {
+    let used = 0;
+    if (this.showSprites && this.zoom >= SPRITE_MIN_ZOOM && this.frames.length > 0 && this.circle) {
+      const { x0, y0, x1, y1 } = this.visibleRange();
+      for (let s = 0; s < this.species.length; s++) {
+        const frame = this.frames[s];
+        const info = this.species[s];
+        if (!frame || !info) continue;
+        const slotX = 0.25 + 0.5 * (s % 2);
+        const slotY = 0.25 + 0.5 * Math.floor(s / 2);
+        for (let y = y0; y < y1; y++) {
+          for (let x = x0; x < x1; x++) {
+            const v = frame[y * this.width + x]!;
+            if (v === 0) continue;
+            const fill = (v - 1) / 254;
+            if (fill < SPRITE_MIN_FILL) continue;
+            let marker = this.markerPool[used];
+            if (!marker) {
+              marker = new Sprite(Texture.WHITE);
+              marker.anchor.set(0.5);
+              this.markerPool.push(marker);
+              this.markers.addChild(marker);
+            }
+            marker.texture = info.kind === 'animal' ? this.circle : Texture.WHITE;
+            marker.tint = info.color;
+            marker.width = marker.height = 0.44 * Math.sqrt(fill);
+            marker.position.set(x + slotX, y + slotY);
+            marker.visible = true;
+            used++;
+          }
+        }
+      }
+    }
+    for (let i = used; i < this.markerPool.length; i++) this.markerPool[i]!.visible = false;
+  }
+
+  private redrawOverlays(): void {
     const z = this.zoom;
 
     this.grid.clear();
     if (z >= GRID_MIN_ZOOM && this.width > 0) {
-      const x0 = Math.max(0, Math.floor(-this.stage.position.x / z));
-      const y0 = Math.max(0, Math.floor(-this.stage.position.y / z));
-      const x1 = Math.min(this.width, Math.ceil((vw - this.stage.position.x) / z));
-      const y1 = Math.min(this.height, Math.ceil((vh - this.stage.position.y) / z));
+      const { x0, y0, x1, y1 } = this.visibleRange();
       for (let x = x0; x <= x1; x++) this.grid.moveTo(x, y0).lineTo(x, y1);
       for (let y = y0; y <= y1; y++) this.grid.moveTo(x0, y).lineTo(x1, y);
       this.grid.stroke({ width: 1 / z, color: 0x000000, alpha: 0.25 });
@@ -170,5 +298,6 @@ export class WorldView {
         .rect(this.selected.x, this.selected.y, 1, 1)
         .stroke({ width: Math.max(2 / z, 0.05), color: 0xffffff, alpha: 0.95 });
     }
+    this.redrawMarkers();
   }
 }
