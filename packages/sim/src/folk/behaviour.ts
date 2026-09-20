@@ -19,6 +19,16 @@ import type { Ecology } from '../ecology';
 import type { SimEvent } from '../events';
 import type { Rng } from '../rng';
 import type { World } from '../world';
+import {
+  COUNTER,
+  COUNTER_COUNT,
+  actionIndex,
+  eatenIndex,
+  folkCounters,
+  sourceIndex,
+  type Metrics,
+} from '../metrics';
+import type { Perf } from '../perf';
 import { initFolk, walkableTable, type FolkStore } from './store';
 
 const ACTION = Object.fromEntries(FOLK_ACTIONS.map((name, i) => [name, i])) as Record<
@@ -57,6 +67,9 @@ export interface FolkContext {
   readonly world: World;
   readonly eco: Ecology;
   readonly store: FolkStore;
+  readonly metrics: Metrics;
+  /** Timing hooks; null when no timer was supplied. */
+  readonly perf: Perf | null;
   readonly rng: Rng;
   readonly events: SimEvent[];
   readonly emitMoves: boolean;
@@ -78,6 +91,8 @@ export function createFolkContext(
   world: World,
   eco: Ecology,
   store: FolkStore,
+  metrics: Metrics,
+  perf: Perf | null,
   rng: Rng,
   events: SimEvent[],
   emitMoves: boolean,
@@ -93,6 +108,8 @@ export function createFolkContext(
     world,
     eco,
     store,
+    metrics,
+    perf,
     rng,
     events,
     emitMoves,
@@ -125,6 +142,30 @@ export function createFolkContext(
       current: 0,
     },
   };
+}
+
+/** Add to one of a Folk's lifetime counters. */
+function count(ctx: FolkContext, slot: number, counter: number, amount: number): void {
+  ctx.metrics.folk[slot * COUNTER_COUNT + counter]! += amount;
+}
+
+/** Record energy a Folk spent doing something, in the per-decider and per-Folk totals. */
+function spendEnergy(ctx: FolkContext, slot: number, label: number, cost: number): void {
+  const { store } = ctx;
+  const before = store.energy[slot]!;
+  const spent = before - Math.max(0, before - cost);
+  store.energy[slot] = before - spent;
+  ctx.metrics.energySpent[actionIndex(store.decider[slot]!, label)]! += spent;
+  count(ctx, slot, COUNTER.energySpent, spent);
+}
+
+/** Record energy a Folk regained by resting or standing idle. */
+function gainEnergy(ctx: FolkContext, slot: number, label: number, gain: number): void {
+  const { store } = ctx;
+  const before = store.energy[slot]!;
+  store.energy[slot] = Math.min(FOLK.maxStat, before + gain);
+  ctx.metrics.energyGained[actionIndex(store.decider[slot]!, label)]! +=
+    store.energy[slot]! - before;
 }
 
 /** Weight the Folk carries. */
@@ -263,11 +304,17 @@ function sense(ctx: FolkContext, slot: number): void {
 
 /** Ask the Folk's decider what to do and start doing it. */
 function decide(ctx: FolkContext, slot: number, tick: number): void {
-  const { store, senses, intent, world } = ctx;
+  const { store, senses, intent, world, perf } = ctx;
+  const t0 = perf?.timer();
   scanTargets(ctx, store.x[slot]!, store.y[slot]!);
   sense(ctx, slot);
+  const t1 = perf?.timer();
   const scores = store.scores.subarray(slot * OPTION_COUNT, (slot + 1) * OPTION_COUNT);
   DECIDERS[store.decider[slot]!]!.decide(senses, intent, scores);
+  if (perf && t0 !== undefined && t1 !== undefined) {
+    perf.scan.record(t1 - t0);
+    perf.decide[store.decider[slot]!]!.record(perf.timer() - t1);
+  }
   store.choice[slot] = intent.option;
 
   switch (intent.option) {
@@ -331,10 +378,15 @@ function eat(ctx: FolkContext, slot: number, tick: number): void {
     if (taken <= 0) continue;
     store.inventory[at] = store.inventory[at]! - taken;
     store.satiety[slot] = store.satiety[slot]! + taken * g.foodValue;
+    const eatenAt = eatenIndex(store.decider[slot]!, g.id);
+    ctx.metrics.eaten[eatenAt]! += taken;
+    ctx.metrics.eaten[eatenAt + 1]! += taken * g.foodValue;
+    count(ctx, slot, COUNTER.satietyEaten, taken * g.foodValue);
     bite -= taken;
     units += taken;
   }
   if (units <= 0) return;
+  count(ctx, slot, COUNTER.meals, 1);
   ctx.events.push({
     tick,
     type: 'eat',
@@ -351,6 +403,7 @@ function injure(ctx: FolkContext, slot: number, tick: number, def: ForageDef): v
   const roll = rng.next();
   const level = roll < def.seriousInjury ? 2 : roll < def.seriousInjury + def.minorInjury ? 1 : 0;
   if (level === 0) return;
+  count(ctx, slot, COUNTER.injuries, 1);
   store.health[slot] = store.health[slot]! - INJURY.damage[level]!;
   if (level > store.injury[slot]!) {
     store.injury[slot] = level;
@@ -379,6 +432,22 @@ function forageResult(ctx: FolkContext, slot: number, tick: number, option: numb
   const skill = def.skill === 'foraging' ? store.foraging[slot]! : store.hunting[slot]!;
   const x = store.x[slot]!;
   const y = store.y[slot]!;
+  const at = sourceIndex(store.decider[slot]!, target.species, world.terrain[tile]!);
+  const goodDef = GOODS_LIST[target.good]!;
+  const record = (success: boolean, units: number): void => {
+    ctx.metrics.sources[at]! += 1;
+    ctx.metrics.sources[at + 1]! += success ? 1 : 0;
+    ctx.metrics.sources[at + 2]! += units;
+    ctx.metrics.sources[at + 3]! += units * goodDef.foodValue;
+    count(ctx, slot, COUNTER.attempts, 1);
+    count(ctx, slot, COUNTER.successes, success ? 1 : 0);
+    count(
+      ctx,
+      slot,
+      target.good === goodIndex('meat') ? COUNTER.meatUnits : COUNTER.plantUnits,
+      units,
+    );
+  };
 
   if (def.kind === 'plant') {
     const amount = Math.min(def.yield * (1 + SKILL_YIELD_BONUS * skill), stock[tile]!, room);
@@ -395,6 +464,7 @@ function forageResult(ctx: FolkContext, slot: number, tick: number, option: numb
       species: def.species,
       amount,
     });
+    record(amount > 0, amount);
   } else {
     const chance = Math.min(MAX_SUCCESS, def.baseSuccess + SKILL_SUCCESS_BONUS * skill);
     const success = rng.next() < chance && stock[tile]! >= 1;
@@ -413,9 +483,10 @@ function forageResult(ctx: FolkContext, slot: number, tick: number, option: numb
       success,
       meat,
     });
+    record(success, meat);
   }
 
-  store.energy[slot] = Math.max(0, store.energy[slot]! - def.energy);
+  spendEnergy(ctx, slot, OPTION_LABEL[option]!, def.energy);
   const gained = SKILL_GAIN * (1 - skill);
   if (def.skill === 'foraging') store.foraging[slot] = skill + gained;
   else store.hunting[slot] = skill + gained;
@@ -434,7 +505,8 @@ function resolve(ctx: FolkContext, slot: number, tick: number): void {
       const fromY = store.y[slot]!;
       store.x[slot] = tile % world.width;
       store.y[slot] = Math.floor(tile / world.width);
-      store.energy[slot] = Math.max(0, store.energy[slot]! - FOLK.moveEnergyCost);
+      spendEnergy(ctx, slot, ACTION.moving, FOLK.moveEnergyCost);
+      count(ctx, slot, COUNTER.steps, 1);
       if (ctx.emitMoves) {
         ctx.events.push({
           tick,
@@ -449,10 +521,10 @@ function resolve(ctx: FolkContext, slot: number, tick: number): void {
       return;
     }
     case PENDING_IDLE:
-      store.energy[slot] = Math.min(FOLK.maxStat, store.energy[slot]! + FOLK.idleEnergyGain);
+      gainEnergy(ctx, slot, ACTION.idle, FOLK.idleEnergyGain);
       return;
     case OPTION.rest:
-      store.energy[slot] = Math.min(FOLK.maxStat, store.energy[slot]! + FOLK.restEnergyGain);
+      gainEnergy(ctx, slot, ACTION.resting, FOLK.restEnergyGain);
       return;
     case OPTION.eat:
       return eat(ctx, slot, tick);
@@ -498,7 +570,10 @@ function liveAndDie(ctx: FolkContext, slot: number, tick: number): boolean {
     x: store.x[slot]!,
     y: store.y[slot]!,
     cause: store.satiety[slot]! <= 0 ? 'starvation' : 'injury',
+    lived: store.age[slot]!,
+    stats: folkCounters(ctx.metrics, slot),
   });
+  ctx.metrics.folk.fill(0, slot * COUNTER_COUNT, (slot + 1) * COUNTER_COUNT);
   // The replacement keeps the dead Folk's decider (so the mix stays constant) with fresh parameters.
   const born = initFolk(store, slot, ctx.world, ctx.rng, ctx.walkable, store.decider[slot]!);
   ctx.events.push({
@@ -519,9 +594,11 @@ export function stepFolk(ctx: FolkContext, tick: number): void {
   const { store } = ctx;
   for (let slot = 0; slot < store.count; slot++) {
     if (liveAndDie(ctx, slot, tick)) continue;
-    if (tick < store.busyUntil[slot]!) continue;
-    if (store.pending[slot] !== PENDING_NONE) resolve(ctx, slot, tick);
-    if (store.intent[slot] !== PENDING_NONE) continueIntent(ctx, slot, tick);
-    if (store.pending[slot] === PENDING_NONE) decide(ctx, slot, tick);
+    if (tick >= store.busyUntil[slot]!) {
+      if (store.pending[slot] !== PENDING_NONE) resolve(ctx, slot, tick);
+      if (store.intent[slot] !== PENDING_NONE) continueIntent(ctx, slot, tick);
+      if (store.pending[slot] === PENDING_NONE) decide(ctx, slot, tick);
+    }
+    ctx.metrics.actionTicks[actionIndex(store.decider[slot]!, store.action[slot]!)]! += 1;
   }
 }

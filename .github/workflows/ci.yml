@@ -13,6 +13,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pandas matplotlib
       - run: npm run lint
       - run: npm run format:check
       - run: npm run typecheck

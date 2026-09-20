@@ -18,12 +18,12 @@ TypeScript on Node 22, as a monorepo with npm workspaces:
 - `packages/cli`: headless runner and benchmarks (same sim package)
 - `web/`: Vite client with PixiJS/WebGL; viewer and command sender only
 - data tables (terrain, later species, goods, actions) live in `packages/sim/src/data/`; world presets may move to `data/`
-- `scripts/`: Python analysis scripts (`summarize_run.py` summarizes a run folder)
+- `scripts/` and `notebooks/`: Python analysis of run folders (`summarize_run.py`, `analyze_run.py`, `analyze_run.ipynb`)
   Tooling: ESLint, Prettier, Vitest, tinybench, GitHub Actions on PRs. Runs locally in WSL; browser on Windows reaches it via localhost.
 
 ## Architecture rules
 
-- The sim is pure TypeScript: no DOM, no I/O, no `Math.random` or `Date.now`. All randomness goes through a seeded RNG. Avoid `Math.exp`/`Math.pow` and similar where cross-engine determinism matters.
+- The sim is pure TypeScript: no DOM, no I/O, no `Math.random` or `Date.now`. Timing is opt-in through an injected `timer`, and never affects simulation results. All randomness goes through a seeded RNG. Avoid `Math.exp`/`Math.pow` and similar where cross-engine determinism matters.
 - Data-oriented storage: tiles and Folk as typed-array columns (structure-of-arrays), not per-object graphs, so hot kernels stay small and portable (worker threads, WebGPU, or Rust/WASM later if profiling demands).
 - Fixed-timestep ticks. The client renders state and never mutates the sim. The server streams deltas filtered by viewport.
 - Economic rules and world content (terrain, species, goods, actions, policies) are data-driven tables, not hard-coded.
@@ -45,8 +45,10 @@ TypeScript on Node 22, as a monorepo with npm workspaces:
 
 - `npm install`: install all workspaces (also installs git hooks)
 - `npm run dev`: sim server (ws://localhost:8787) and web client (http://localhost:5173)
-- `npm run sim -- --seed 1 --ticks 1000`: headless run that writes a log to `experiments/output/<run-id>/`; options `--folk N`, `--size N`, `--regrowth X` (plant regrowth scale), `--deciders rules,utility`, `--snapshot-interval N`, `--moves` (log every step), `--no-log`
-- `python3 scripts/summarize_run.py [run_dir]`: summarize a run (defaults to the newest)
+- `npm run sim -- --seed 1 --ticks 1000`: headless run that writes a log to `experiments/output/<run-id>/`; options `--folk N`, `--size N`, `--regrowth X` (plant regrowth scale), `--deciders rules,utility`, `--snapshot-interval N`, `--metrics-interval N`, `--moves` (log every step), `--no-log`
+- `npm run bench -- --folk 20,100,500,2000 --deciders rules,utility,mixed --size 256 --ticks 300`: benchmark; prints ticks/s, ms per tick split into ecology and Folk, decisions per tick and decision-time percentiles, and saves JSON to `experiments/output/`
+- `python3 scripts/summarize_run.py [run_dir]`: quick text summary of a run (standard library only; defaults to the newest)
+- `python3 scripts/analyze_run.py [run_dir]`: pandas and matplotlib analysis; prints the key tables and writes plots to `<run>/analysis/`. `notebooks/analyze_run.ipynb` is the same analysis for Jupyter. Needs `pip install pandas matplotlib`.
 - `PORT=8799 npm run start -w @folk/server` and `VITE_SERVER_PORT=8799 npx vite --port 5199` (in `web/`): run on other ports, e.g. beside a dev session. Stop test processes by PID, never by port, since the user may be running `npm run dev`.
 - `npm test`: Vitest; `npm run test:watch` for watch mode
 - `npm run lint`, `npm run format`, `npm run typecheck`

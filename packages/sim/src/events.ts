@@ -48,6 +48,9 @@ export type SimEvent =
       x: number;
       y: number;
       cause: 'starvation' | 'injury';
+      /** Ticks the Folk lived, and its lifetime counters (meals, food by kind, energy spent, ...). */
+      lived: number;
+      stats: Record<string, number>;
     }
   | {
       tick: number;

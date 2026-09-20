@@ -12,6 +12,7 @@ const { values } = parseArgs({
     regrowth: { type: 'string' },
     deciders: { type: 'string' },
     'snapshot-interval': { type: 'string', default: '10' },
+    'metrics-interval': { type: 'string', default: '100' },
     moves: { type: 'boolean', default: false },
     log: { type: 'boolean', default: true },
   },
@@ -26,12 +27,13 @@ const sim = createSim({
   ...(values.regrowth ? { plantRegrowthScale: Number(values.regrowth) } : {}),
   ...(values.deciders ? { deciders: values.deciders.split(',') } : {}),
   emitMoves: values.moves,
+  timer: () => performance.now(),
 });
 
 const logger = values.log
   ? startRun(sim, {
       snapshotInterval: Number(values['snapshot-interval']),
-      extra: { decider: 'rules' },
+      metricsInterval: Number(values['metrics-interval']),
     })
   : null;
 logger?.record(sim);
@@ -50,4 +52,10 @@ const totals = speciesTotals(sim.ecology);
 console.log(`seed=${seed} ticks=${sim.tick} folk=${sim.folk.count} elapsed=${ms.toFixed(0)}ms`);
 console.log(`events: ${JSON.stringify(counts)}`);
 console.log(SPECIES_LIST.map((s, i) => `${s.key}=${Math.round(totals[i]!)}`).join(' '));
+if (sim.perf) {
+  const ms = (v: number): string => (v * 1000).toFixed(1);
+  console.log(
+    `per tick: ${sim.perf.step.meanMs.toFixed(2)}ms (ecology ${sim.perf.ecology.meanMs.toFixed(2)}, folk ${sim.perf.folk.meanMs.toFixed(2)}); decisions: scan p50/p95 ${ms(sim.perf.scan.quantileMs(0.5))}/${ms(sim.perf.scan.quantileMs(0.95))}us`,
+  );
+}
 if (logger) console.log(`log: ${logger.dir}`);

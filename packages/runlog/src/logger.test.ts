@@ -68,7 +68,7 @@ describe('startRun', () => {
     );
 
     const resourceRows = readFileSync(join(log.dir, 'resources.csv'), 'utf8').trim().split('\n');
-    expect(resourceRows[0]).toBe('tick,berries,roots,hare,deer');
+    expect(resourceRows[0]).toBe('tick,berries,roots,hare,deer,carried_plantFood,carried_meat');
     expect(resourceRows).toHaveLength(1 + 11);
     expect(resourceRows[resourceRows.length - 1]!.startsWith('95,')).toBe(true);
   });
@@ -79,5 +79,57 @@ describe('startRun', () => {
     const b = startRun(createSim(simConfig), { outputDir: out });
     expect(a.dir).not.toBe(b.dir);
     expect(readdirSync(out)).toHaveLength(2);
+  });
+
+  it('writes terrain food, activity, sources, consumption, lifetimes and timing', () => {
+    const sim = createSim({ ...simConfig, timer: () => performance.now() });
+    const out = outputDir();
+    const log = startRun(sim, { outputDir: out, metricsInterval: 50 });
+    log.record(sim);
+    for (let i = 0; i < 400; i++) {
+      sim.step();
+      log.record(sim);
+    }
+    log.close(sim);
+    const read = (name: string): string[][] =>
+      readFileSync(join(log.dir, name), 'utf8')
+        .trim()
+        .split('\n')
+        .map((line) => line.split(','));
+
+    const terrain = read('terrain_resources.csv');
+    expect(terrain[0]).toEqual([
+      'tick',
+      'terrain',
+      'species',
+      'tiles',
+      'habitable',
+      'stock',
+      'capacity',
+    ]);
+    // Snapshots at ticks 0, 50, ..., 400: 9 of them, 6 terrains x 4 species each.
+    expect(terrain.length - 1).toBe(9 * 6 * 4);
+
+    const activity = read('activity.csv');
+    const last = activity.filter((row) => row[0] === '400');
+    expect(last.length).toBe(2 * 8);
+    const folkTicks = last.reduce((sum, row) => sum + Number(row[3]), 0);
+    expect(folkTicks).toBe(4 * 400);
+
+    expect(read('food_sources.csv').length).toBeGreaterThan(1);
+    expect(read('consumption.csv').length).toBeGreaterThan(1);
+
+    const lifetimes = read('lifetimes.csv');
+    expect(lifetimes[0]!.slice(0, 6)).toEqual(['id', 'decider', 'born', 'died', 'cause', 'lived']);
+    expect(lifetimes[0]).toContain('meals');
+    expect(lifetimes[0]).toContain('p7');
+    expect(lifetimes.length - 1).toBe(4);
+    for (const row of lifetimes.slice(1)) expect(row).toHaveLength(lifetimes[0]!.length);
+
+    const timing = JSON.parse(readFileSync(join(log.dir, 'performance.json'), 'utf8'));
+    expect(timing.ticks).toBe(400);
+    expect(timing.step.count).toBe(400);
+    expect(timing.decide.rules.count + timing.decide.utility.count).toBe(timing.scan.count);
+    expect(timing.step.p95Ms).toBeGreaterThanOrEqual(timing.step.p50Ms);
   });
 });

@@ -122,3 +122,18 @@ Two settings exist and default to 1: `plantRegrowthScale` (plant regrowth and an
 - Hunger 2x to 6x: light pressure at most (0-4% of Folk-ticks hungry, one death in 18 runs), because gathering yields about 0.75 food per tick against a need of 0.12 x scale per tick.
   Real scarcity therefore needs more Folk, a smaller or poorer world, much higher hunger, or seasons. The knobs are available in the panel, CLI and server (`REGROWTH` environment variable) so it can be explored by playing.
   Observed decider behaviour: rules Folk dig and are injured 1-5% of the time; utility Folk mix gathering with snaring hares, are rarely injured, and almost never chase deer.
+
+## 2026-09-20: Measurement approach (milestone 6)
+
+Timing uses an injected clock so the sim stays pure and results unchanged; decisions are timed as the shared search plus each decider's own call, because the search, not the decider, is the variable cost. Tracking is cumulative counters per decider (time, energy, food sources, consumption) plus per-Folk lifetime counters, logged as tidy CSVs for pandas; per-Folk lifetimes double as the fitness data a genetic algorithm will need. A live Stats panel shows the same numbers while playing. The Python analysis is tested against a freshly logged run so it cannot drift from the log format, and CI installs pandas and matplotlib for that.
+
+## 2026-09-20: Findings to tune from (end of milestone 6)
+
+From a 6000-tick run (seed 2) and the benchmarks; all to be revisited in the tuning phase:
+
+- **Cost:** the ecology dominates: about 3.7 ms per tick at 256x256 and about 60 ms at 1024x1024 (1M tiles, about 17 ticks/s). All Folk together cost about 1 to 2 microseconds per Folk per tick, so even 5000 Folk add only 5 to 9 ms. Decisions themselves are under the timer floor (about 1.2 us); the shared search has p95 of 3 to 13 us and rare tails of hundreds of us.
+- **Decisions are mostly wandering:** about 0.9 decisions per Folk per tick, because wander, idle and eat last a single tick. Longer wander actions would cut this.
+- **Where Folk spend time:** about 44 to 46% moving, about 29 to 31% idle, about 10% resting, 5 to 14% working. About 86% of all energy goes on walking.
+- **Food is concentrated in forest:** berries and roots in grassland and hills settle at about 1% of capacity within 500 ticks (grazed out by animals), so forest supplies 85 to 99% of Folk food; only forest and sand keep plants at a useful level. Hare and deer stay at 30 to 100% of capacity everywhere.
+- **Deciders:** rules Folk gather berries and dig roots; utility Folk mix in hare snaring (about 60% success), are hurt slightly more often, and nobody chases deer.
+- **Parameters:** for rules Folk, hunger threshold and risk tolerance correlate most strongly with satiety eaten per tick; for utility Folk, hunger weight correlates positively and risk, distance and reserve weights negatively (small samples, not conclusive).
