@@ -137,3 +137,31 @@ From a 6000-tick run (seed 2) and the benchmarks; all to be revisited in the tun
 - **Food is concentrated in forest:** berries and roots in grassland and hills settle at about 1% of capacity within 500 ticks (grazed out by animals), so forest supplies 85 to 99% of Folk food; only forest and sand keep plants at a useful level. Hare and deer stay at 30 to 100% of capacity everywhere.
 - **Deciders:** rules Folk gather berries and dig roots; utility Folk mix in hare snaring (about 60% success), are hurt slightly more often, and nobody chases deer.
 - **Parameters:** for rules Folk, hunger threshold and risk tolerance correlate most strongly with satiety eaten per tick; for utility Folk, hunger weight correlates positively and risk, distance and reserve weights negatively (small samples, not conclusive).
+
+## 2026-09-20: Pivot to a hunter-gatherer ecology simulation
+
+After reviewing the MVP against its measurements, the project focus moves to a hunter-gatherer ecology simulation as the foundation; the medieval economy and governance experiments remain the long-term goal and are built on top of it. Why: costs were disconnected from food, food was everywhere, and Folk knew the whole map, so there were no real trade-offs to build an economy on. Plan in `docs/foundation.md`.
+
+## 2026-09-20: One calorie reserve; injury is a status; fatigue dropped
+
+Satiety, energy and health merge into a single calorie reserve; activities carry calorie costs; healing an injury burns calories; injury keeps its duration multipliers (minor 2x, serious 10x). Fatigue is dropped until a day and night cycle exists. Death is the reserve reaching zero.
+
+## 2026-09-20: Units
+
+Tick = 6 minutes, tile = 360 m (walking at 1 m/s crosses a tile per tick; running up to 4 m/s crosses several), mass in kg, energy in kcal. All are defaults in the run configuration.
+
+## 2026-09-20: Movement is a goal on the blackboard, walked step by step
+
+A goal (target, purpose, time chosen) is stored on the blackboard; each step is a small action whose time and calorie cost depend on gait, terrain, slope and injury; decisions run only on arrival, invalid goal or an interrupt. A single multi-tick walk action was rejected: it cannot be interrupted or adapt to terrain, and it hides the goal.
+
+## 2026-09-20: Blackboard remembers sightings with their age
+
+Each Folk stores where it saw food, of what and how much, and when, plus a coarse explored map, its goal and the camp. Deciders see age and discount stale knowledge. Perception has per-kind sight radii (plants 1 tile, animals 3 by default) and replaces the 60-tile omniscient search.
+
+## 2026-09-20: Food starts sparse and patchy; animal food separation is an experiment
+
+Per-species patch coverage starts low (berries about 4% of habitable tiles, roots 3%, hare 8%, deer 2%) and is raised if the world is unsustainable. Regrowth needs neighbouring stock, so emptied patches stay empty. Whether animals should graze their own forage instead of the berries and roots Folk gather is uncertain, so it is a per-run switch, default shared, compared in F5.
+
+## 2026-09-20: Activities and costs are configured per run
+
+All costs, yields, speeds, densities and ranges live in a configuration file loaded at the start of a run (not adjustable during one); the resolved configuration and its hash are recorded in the manifest.
