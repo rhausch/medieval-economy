@@ -41,3 +41,6 @@ Alternatives: all in browser main thread (does not scale), TS sim in a Web Worke
 
 ## 2026-09-19: Emphasis on richer Folk over larger populations
 The user prefers fewer, more complex Folk with stronger planning and group behaviour to many simple agents. Decision frameworks are therefore the expected cost centre; planners may run in worker threads, and per-decision performance tracking is a priority.
+
+## 2026-09-19: MVP milestone order
+Scaffold, world, resources, Folk with basic logging, actions and decisions, then analysis and benchmarks. Basic event logging was folded into the Folk milestone (rather than last) so runs can be analysed from the first playable Folk. Each milestone ends in a playable or inspectable build and a feedback session.

@@ -5,7 +5,7 @@ A web-based, top-down tile game (minimalist, clear graphics on a large board) fo
 Development is iterative: build a small slice, playtest with the user, record feedback, update the roadmap, repeat. Do not build ahead of the roadmap.
 
 ## Status
-Phase 1 (interactive design session) is nearly complete; next is the MVP milestone breakdown, then Phase 2 (MVP). See `docs/roadmap.md`, `docs/design.md`, `docs/decisions.md`.
+Phase 1 (interactive design session) is complete. Phase 2 (MVP) has six milestones; see `docs/roadmap.md`. See `docs/roadmap.md`, `docs/design.md`, `docs/decisions.md`.
 
 ## Stack
 TypeScript on Node 22, as a monorepo with npm workspaces:
