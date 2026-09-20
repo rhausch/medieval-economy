@@ -58,3 +58,19 @@ The user prefers fewer, more complex Folk with stronger planning and group behav
 ## 2026-09-19: MVP milestone order
 
 Scaffold, world, resources, Folk with basic logging, actions and decisions, then analysis and benchmarks. Basic event logging was folded into the Folk milestone (rather than last) so runs can be analysed from the first playable Folk. Each milestone ends in a playable or inspectable build and a feedback session.
+
+## 2026-09-19: Terrain as a table, resources as a species registry
+
+Terrain is a data table with categories so subtypes (lake, river, ocean) are additions. The four fixed resource fields are replaced by a species registry: many plant and animal species per terrain, each with terrain affinity, capacity, regrowth and diffusion. Why: the user wants different plants and animals within the same terrain later. Two-tier forage and hunt become different species.
+
+## 2026-09-19: Biomes from Perlin noise with quantile thresholds
+
+Elevation and moisture are fractal Perlin noise; terrain classes are cut at quantiles of those fields. Why: gives coherent biome regions, and requested fractions (water, hills, forest) are honoured regardless of seed. Alternatives: fixed noise thresholds (fractions vary wildly by seed), cellular-automata smoothing (unneeded once noise is smooth).
+
+## 2026-09-19: Terrain drawn as a single texture; sprites for tile state in a separate layer
+
+One pixel per tile, nearest-filtered, so 1M-tile worlds render cheaply. Sprites showing resource levels (plentiful versus bare) go in a decoration layer added with resources.
+
+## 2026-09-19: Default world is large-featured and simple; variety comes from resources
+
+After playing milestone 2 the user found feature size 200 with 6 octaves ideal, and does not want a complex world, just different resource locations. Defaults changed to `noiseScale` 200 and `octaves` 6. Terrain stays a small set of broad biomes; further variety (which plants and animals live where, and how plentiful) comes from the species registry rather than more terrain types or generation complexity.

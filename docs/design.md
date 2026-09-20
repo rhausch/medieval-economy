@@ -26,27 +26,30 @@ Generic `Entity` (id, position) with `Folk` as the first kind. Animals and plant
 
 ## World
 
-Tile grid. Per tile: `terrain` (grass, forest, hills, water, ...), `fertility`, and four resource fields, each a stock with a capacity:
+Tile grid. Per tile: `terrain` (a data-driven table with a `category` and `walkable` flag; subtypes such as lake, river and ocean are later table entries), `elevation`, `moisture`, and resource stocks per **species**.
 
-- `plantsCommon`, `plantsRich`
-- `gameSmall`, `gameLarge`
+**Terrain (v1):** water, sand, grassland, forest, hills, mountain (mountain and water are not walkable). Terrain ids index typed arrays.
 
-**Resource dynamics (lattice model, no individual plants or animals):** per tick, logistic regrowth `stock += rate * stock * (1 - stock / capacity)` with a small seed rate so depleted tiles can recover, plus neighbour diffusion (animals roam, seeds disperse). Overharvesting creates depleted patches that refill from surroundings. Update cost is O(tiles); can chunk or run every N ticks if needed.
-Suggested per-field character: small game and common plants regrow fast with low capacity; large game and rich plants regrow slowly, have higher capacity where present, and large game diffuses widely.
+**Species registry (replaces the earlier four fixed fields):** plants and animals are entries in a data table, not entities. Each species declares the terrains it lives in, its capacity per terrain, regrowth rate and diffusion rate. Several species can share one terrain (e.g. berries and roots in forest; hare and deer in grassland). The two-tier actions map to species (see Actions). Species are added in milestone 3.
 
-**World generation:** seeded noise (elevation, moisture) plus CA smoothing passes for coherent forests, lakes and hills. Capacities derive from terrain and fertility.
-Parameters: `seed`, `width`, `height`, `noiseScale`, `waterLevel`, `forestCoverage`, `fertilityVariance`, per-field density scale, per-field `regrowthRate` and `diffusionRate`, `startingFolk`, spawn placement.
+**Resource dynamics (lattice model, no individual plants or animals):** per species per tick, logistic regrowth `stock += rate * stock * (1 - stock / capacity)` with a small seed rate so depleted tiles can recover, plus neighbour diffusion (animals roam, seeds disperse). Overharvesting creates depleted patches that refill from surroundings. Update cost is O(tiles x species); can chunk or run every N ticks if needed.
+Suggested character: small game and common plants regrow fast with low capacity; large game and rich plants regrow slowly, have higher capacity where present, and large game diffuses widely.
+
+**World generation (implemented, milestone 2):** seeded Perlin noise (fractal, several octaves) for elevation and for moisture. Terrain is chosen by quantile thresholds, so the requested fractions are honoured regardless of the noise: lowest `waterFraction` of tiles are water, the next `beachFraction` are sand, and of the remaining land the highest are mountain, then hills; the wettest `forestFraction` of lowland is forest and the rest grassland. This gives coherent biome regions (continents, lakes, mountain ranges ringed by hills) instead of random tiling. 1M tiles generate in about 0.5 s.
+Parameters: `seed`, `width`, `height`, `noiseScale` (feature size in tiles), `octaves`, `waterFraction`, `beachFraction`, `hillFraction`, `mountainFraction`, `forestFraction`. Species density and rates arrive with species. All are editable from the client panel.
+
+**Rendering:** the terrain is one nearest-filtered texture (1 pixel per tile) shaded by elevation, so large boards are cheap; pan and zoom, a grid that appears when zoomed in, and a tile selection highlight. A separate decoration layer will hold **sprites that show tile state** (plentiful food versus bare ground), added with resources in milestone 3.
 
 ## Actions (v1)
 
-An action is data: resource field, time, energy cost, success chance, yield, injury risk, skill gain. Two tiers each for forage and hunt. Numbers below are placeholders to tune by playing.
+An action is data: species (resource), time, energy cost, success chance, yield, injury risk, skill gain. Two tiers each for forage and hunt. Numbers below are placeholders to tune by playing.
 
-| Action                                      | Field        | Effort | Risk             | Reward |
-| ------------------------------------------- | ------------ | ------ | ---------------- | ------ |
-| Gather (surface plants, berries and greens) | plantsCommon | low    | ~none            | low    |
-| Dig/Deep-forage (roots, nuts, mushrooms)    | plantsRich   | high   | injury, bad-food | high   |
-| Snare (small game)                          | gameSmall    | low    | ~none            | low    |
-| Chase (large game)                          | gameLarge    | high   | serious injury   | high   |
+| Action                                      | Field           | Effort | Risk             | Reward |
+| ------------------------------------------- | --------------- | ------ | ---------------- | ------ |
+| Gather (surface plants, berries and greens) | berries, greens | low    | ~none            | low    |
+| Dig/Deep-forage (roots, nuts, mushrooms)    | plantsRich      | high   | injury, bad-food | high   |
+| Snare (small game)                          | gameSmall       | low    | ~none            | low    |
+| Chase (large game)                          | gameLarge       | high   | serious injury   | high   |
 
 Success and yield scale with skill and local density, so sparse tiles are harder and overharvesting is self-limiting. High-effort actions need a minimum local density to be worth attempting.
 
