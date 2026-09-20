@@ -9,7 +9,7 @@ Scope of the current layer: the base world and the entities that live in it. No 
 - Every run is fully logged for later analysis in Python.
 - Design extension points now (perception, goods, actions, resource fields) so later layers are additions.
 
-## Entity: Folk (working name)
+## Entity: Folk
 Generic `Entity` (id, position) with `Folk` as the first kind. Animals and plants are NOT entities.
 
 **Stats (v1):** `satiety` (0-100, decays each tick; starvation damages health), `health` (0-100), `energy` (0-100), `age`, `position`, `skills` (`foraging`, `hunting`; 0-1, grow with use), `currentAction`.

@@ -4,12 +4,12 @@ Living document. Updated after every playtest. Each milestone ends with a playab
 
 ## Phase 0: Setup (current)
 - [x] Repo, CLAUDE.md, skills, doc scaffolding
-- [ ] Branch protection on main (blocked on plan/visibility choice)
+- [x] Branch protection on main (repo made public)
 - [ ] Tooling (lint, format, test, hooks) once stack is confirmed
 
 ## Phase 1: Interactive design session (current)
 - [x] Entities, stats, inventory, resource model, logging (see `docs/design.md`)
-- [ ] Confirm entity name
+- [x] Confirm entity name (Folk)
 - [ ] Revisit stack against requirements
 - [ ] Draft MVP milestones
 

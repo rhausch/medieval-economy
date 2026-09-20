@@ -22,3 +22,6 @@ Low effort/risk/reward and high effort/risk/reward variants of each. Why: gives 
 
 ## 2026-09-19: Run logging format
 manifest.json + events.jsonl + periodic CSV snapshots. Why: pandas reads them natively, no extra dependencies.
+
+## 2026-09-19: Entity name is Folk; repo is public
+Folk chosen over Serf (implies social status that would clash with governance experiments) and Hind (ambiguous with deer). Repo made public so branch protection is available on the free plan.
