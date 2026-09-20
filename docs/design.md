@@ -60,3 +60,21 @@ Determinism means a replay from manifest reproduces the logs exactly; use that a
 
 ## Extension points (planned, not built)
 Perception and memory; births; more goods and recipes; specialisation via skills; seasons; groups and property; trade; governance.
+
+## Behaviour (decision making)
+
+**Swappable interface:** `decide(senses, actions, blackboard) -> Intent`. Frameworks are interchangeable and benchmarked against each other.
+- **Senses:** read-only snapshot. Internal (stats, inventory, skills, current action) and external (via `perceive()`).
+- **Actions:** currently available actions from the data-driven definitions, each with preconditions, cost (time, energy, risk) and expected result. Sim and deciders share one source of truth.
+- **Blackboard (per Folk, private in v1):** knowledge (known tile estimates with timestamps), goals with priorities, plan/step queue and scratch space.
+- **Cadence:** a Folk decides when its current action completes or is interrupted, not every tick.
+
+**Performance tracking:** every `decide()` call is timed and logged (ms per decision, decisions per tick, p50/p95/max per framework, planner counters such as nodes expanded and cache hits, per-tick decision budget). A headless benchmark runs N Folk for M ticks on a fixed seed and reports ticks/sec per framework as N grows.
+
+**Frameworks:** rule/priority list (baseline, performance floor) and utility AI (primary). GOAP or HTN when multi-step chains (crafting, trade, storage) arrive, with utility choosing goals and the planner producing steps. Behavior tree, RL and LLM-driven remain possible behind the interface.
+
+**Trait and weight variation:** per Folk, drawn from a seeded distribution at spawn.
+- Traits: `riskAversion`, `laziness`, `talent` (skill growth multiplier), `hungerThreshold`.
+- Utility weights: per-Folk multiplier on each consideration (need urgency, expected yield, effort, risk, distance).
+- `variationStrength` scales the spread; 0 gives identical Folk for clean baseline runs. Recorded in the manifest.
+- Traits and weights are logged at spawn and shown in the Folk inspector. Replacement spawns draw fresh traits.

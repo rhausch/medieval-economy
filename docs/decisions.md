@@ -25,3 +25,12 @@ manifest.json + events.jsonl + periodic CSV snapshots. Why: pandas reads them na
 
 ## 2026-09-19: Entity name is Folk; repo is public
 Folk chosen over Serf (implies social status that would clash with governance experiments) and Hind (ambiguous with deer). Repo made public so branch protection is available on the free plan.
+
+## 2026-09-19: Swappable decision framework behind a common interface
+Senses, action list with costs and results, and a per-Folk blackboard; decisions on action completion; per-decision performance logging. Utility AI primary, rule list as baseline, GOAP/HTN later for multi-step chains. Why: decision making is the likely bottleneck at high Folk counts, and the user wants to compare frameworks. Blackboards are private in v1 (shared knowledge is where group behaviour begins, which is deferred).
+
+## 2026-09-19: Trait and utility-weight variation from v1
+Configurable via `variationStrength`; 0 gives uniform Folk. Why: makes populations differ meaningfully while keeping clean baseline runs possible.
+
+## 2026-09-19: PRs approved in chat
+The user approves PRs in chat from a summary or playtest, not on GitHub.
