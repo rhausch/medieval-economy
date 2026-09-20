@@ -34,3 +34,10 @@ Configurable via `variationStrength`; 0 gives uniform Folk. Why: makes populatio
 
 ## 2026-09-19: PRs approved in chat
 The user approves PRs in chat from a summary or playtest, not on GitHub.
+
+## 2026-09-19: Stack is TypeScript end to end with a Node sim server
+Sim, server, CLI and client are all TypeScript on Node 22 (npm workspaces). The sim runs in a Node server that writes logs and streams viewport-filtered deltas over WebSocket to a PixiJS/WebGL client. Why: target scale (over 1M tiles, over 1000 Folk) is within reach of typed-array TypeScript; the lattice can update every N ticks or by active region, and worker threads or WebGPU are available if needed. A browser-only sim cannot write logs to disk reliably. Rust core (with WASM or server) was considered and rejected for now: the user has not used Rust and the scale does not require it. Reconsider only if profiling shows the lattice or planners exceed tick budgets; port just the hot kernel.
+Alternatives: all in browser main thread (does not scale), TS sim in a Web Worker only (no native logging), Rust/WASM in a worker.
+
+## 2026-09-19: Emphasis on richer Folk over larger populations
+The user prefers fewer, more complex Folk with stronger planning and group behaviour to many simple agents. Decision frameworks are therefore the expected cost centre; planners may run in worker threads, and per-decision performance tracking is a priority.

@@ -10,7 +10,7 @@ Living document. Updated after every playtest. Each milestone ends with a playab
 ## Phase 1: Interactive design session (current)
 - [x] Entities, stats, inventory, resource model, logging (see `docs/design.md`)
 - [x] Confirm entity name (Folk)
-- [ ] Revisit stack against requirements
+- [x] Revisit stack against requirements (TypeScript, Node sim server, PixiJS client)
 - [ ] Draft MVP milestones
 
 ## Phase 2: World and Folk MVP
