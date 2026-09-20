@@ -70,3 +70,7 @@ Elevation and moisture are fractal Perlin noise; terrain classes are cut at quan
 ## 2026-09-19: Terrain drawn as a single texture; sprites for tile state in a separate layer
 
 One pixel per tile, nearest-filtered, so 1M-tile worlds render cheaply. Sprites showing resource levels (plentiful versus bare) go in a decoration layer added with resources.
+
+## 2026-09-19: Default world is large-featured and simple; variety comes from resources
+
+After playing milestone 2 the user found feature size 200 with 6 octaves ideal, and does not want a complex world, just different resource locations. Defaults changed to `noiseScale` 200 and `octaves` 6. Terrain stays a small set of broad biomes; further variety (which plants and animals live where, and how plentiful) comes from the species registry rather than more terrain types or generation complexity.
