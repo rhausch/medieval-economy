@@ -1,6 +1,8 @@
+import { OPTION_COUNT, PENDING_NONE } from '../data/actions';
 import { FOLK } from '../data/folk';
 import { GOODS_LIST } from '../data/goods';
 import { TERRAIN_LIST } from '../data/terrain';
+import { DECIDERS, MAX_PARAMS } from '../deciders';
 import type { Ecology } from '../ecology';
 import type { Rng } from '../rng';
 import type { World } from '../world';
@@ -21,6 +23,26 @@ export interface FolkStore {
   readonly action: Uint8Array;
   /** count x GOODS_LIST.length quantities, slot-major. */
   readonly inventory: Float32Array;
+  /** Index into DECIDERS. */
+  readonly decider: Uint8Array;
+  /** count x MAX_PARAMS decider parameters, slot-major, in the decider's parameter order. */
+  readonly params: Float32Array;
+  /** 0 none, 1 minor, 2 serious; and ticks until it heals one level. */
+  readonly injury: Uint8Array;
+  readonly injuryTimer: Float32Array;
+  /** The Folk is busy until this tick; `pending` is what it is doing (PENDING_NONE when free). */
+  readonly busyUntil: Uint32Array;
+  readonly pending: Uint8Array;
+  readonly pendingTile: Int32Array;
+  /** The option and target tile it is working toward (PENDING_NONE / -1 when it has none). */
+  readonly intent: Uint8Array;
+  readonly intentTile: Int32Array;
+  /** Walk to the intent tile: tiles still to step on, and how far along. */
+  readonly paths: (Int32Array | null)[];
+  readonly pathPos: Uint16Array;
+  /** count x OPTION_COUNT scores from the last decision (NaN = unavailable) and the option chosen. */
+  readonly scores: Float32Array;
+  readonly choice: Uint8Array;
   /** Where Folk appear. */
   readonly settlement: { x: number; y: number };
   nextId: number;
@@ -100,15 +122,17 @@ function spawnTile(
   return settlement;
 }
 
-/** Put a new Folk into a slot, at full health and energy with a random starting satiety. */
+/** Put a new Folk into a slot with the given decider and random parameters drawn from its ranges. */
 export function initFolk(
   store: FolkStore,
   slot: number,
   world: World,
   rng: Rng,
   walkable: Uint8Array,
-): { id: number; x: number; y: number } {
+  deciderIndex: number,
+): { id: number; x: number; y: number; decider: string; params: number[] } {
   const at = spawnTile(world, walkable, store.settlement, rng);
+  const decider = DECIDERS[deciderIndex]!;
   store.nextId += 1;
   store.id[slot] = store.nextId;
   store.x[slot] = at.x;
@@ -122,7 +146,25 @@ export function initFolk(
   store.hunting[slot] = 0;
   store.action[slot] = 0;
   store.inventory.fill(0, slot * GOODS_LIST.length, (slot + 1) * GOODS_LIST.length);
-  return { id: store.nextId, x: at.x, y: at.y };
+  store.decider[slot] = deciderIndex;
+  store.params.fill(0, slot * MAX_PARAMS, (slot + 1) * MAX_PARAMS);
+  const params = decider.params.map((spec, i) => {
+    const value = spec.min + (spec.max - spec.min) * rng.next();
+    store.params[slot * MAX_PARAMS + i] = value;
+    return Number(value.toFixed(4));
+  });
+  store.injury[slot] = 0;
+  store.injuryTimer[slot] = 0;
+  store.busyUntil[slot] = 0;
+  store.pending[slot] = PENDING_NONE;
+  store.pendingTile[slot] = -1;
+  store.intent[slot] = PENDING_NONE;
+  store.intentTile[slot] = -1;
+  store.paths[slot] = null;
+  store.pathPos[slot] = 0;
+  store.scores.fill(Number.NaN, slot * OPTION_COUNT, (slot + 1) * OPTION_COUNT);
+  store.choice[slot] = 0;
+  return { id: store.nextId, x: at.x, y: at.y, decider: decider.key, params };
 }
 
 export function createFolkStore(world: World, eco: Ecology, rng: Rng, count: number): FolkStore {
@@ -139,6 +181,19 @@ export function createFolkStore(world: World, eco: Ecology, rng: Rng, count: num
     hunting: new Float32Array(count),
     action: new Uint8Array(count),
     inventory: new Float32Array(count * GOODS_LIST.length),
+    decider: new Uint8Array(count),
+    params: new Float32Array(count * MAX_PARAMS),
+    injury: new Uint8Array(count),
+    injuryTimer: new Float32Array(count),
+    busyUntil: new Uint32Array(count),
+    pending: new Uint8Array(count),
+    pendingTile: new Int32Array(count),
+    intent: new Uint8Array(count),
+    intentTile: new Int32Array(count),
+    paths: Array.from({ length: count }, () => null),
+    pathPos: new Uint16Array(count),
+    scores: new Float32Array(count * OPTION_COUNT),
+    choice: new Uint8Array(count),
     settlement: findSettlement(world, eco, rng),
     nextId: 0,
   };

@@ -175,3 +175,13 @@ input[type='checkbox'] {
 .bar-row .bar {
   margin: 2px 0;
 }
+.param-row {
+  display: grid;
+  grid-template-columns: 112px 1fr 38px;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.param-row .bar {
+  margin: 2px 0;
+}

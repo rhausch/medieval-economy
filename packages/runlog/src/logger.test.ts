@@ -22,6 +22,7 @@ describe('startRun', () => {
   it('writes a manifest, events, entity snapshots and resource totals', () => {
     const sim = createSim(simConfig);
     sim.folk.satiety.fill(30);
+    for (let slot = 0; slot < sim.folk.count; slot++) sim.folk.inventory[slot * 2] = 10;
     const out = outputDir();
     const log = startRun(sim, {
       outputDir: out,
@@ -59,6 +60,12 @@ describe('startRun', () => {
     expect(entityRows).toHaveLength(1 + 11 * 4);
     for (const row of entityRows.slice(1)) expect(row.split(',')).toHaveLength(header.length);
     expect(header).toContain('inv_plantFood');
+    expect(header).toContain('decider');
+    expect(header).toContain('injury');
+    expect(manifest.deciders.map((d: { key: string }) => d.key)).toEqual(['rules', 'utility']);
+    expect(events.filter((e) => e.type === 'spawn').every((e) => Array.isArray(e.params))).toBe(
+      true,
+    );
 
     const resourceRows = readFileSync(join(log.dir, 'resources.csv'), 'utf8').trim().split('\n');
     expect(resourceRows[0]).toBe('tick,berries,roots,hare,deer');

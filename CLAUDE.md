@@ -45,7 +45,7 @@ TypeScript on Node 22, as a monorepo with npm workspaces:
 
 - `npm install`: install all workspaces (also installs git hooks)
 - `npm run dev`: sim server (ws://localhost:8787) and web client (http://localhost:5173)
-- `npm run sim -- --seed 1 --ticks 1000`: headless run that writes a log to `experiments/output/<run-id>/`; options `--folk N`, `--size N`, `--snapshot-interval N`, `--moves` (log every step), `--no-log`
+- `npm run sim -- --seed 1 --ticks 1000`: headless run that writes a log to `experiments/output/<run-id>/`; options `--folk N`, `--size N`, `--regrowth X` (plant regrowth scale), `--deciders rules,utility`, `--snapshot-interval N`, `--moves` (log every step), `--no-log`
 - `python3 scripts/summarize_run.py [run_dir]`: summarize a run (defaults to the newest)
 - `PORT=8799 npm run start -w @folk/server` and `VITE_SERVER_PORT=8799 npx vite --port 5199` (in `web/`): run on other ports, e.g. beside a dev session. Stop test processes by PID, never by port, since the user may be running `npm run dev`.
 - `npm test`: Vitest; `npm run test:watch` for watch mode

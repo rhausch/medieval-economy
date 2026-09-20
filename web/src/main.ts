@@ -1,5 +1,6 @@
 import {
   connect,
+  type DeciderInfo,
   type FolkDetailMessage,
   type SpeciesInfo,
   type TileMessage,
@@ -24,7 +25,7 @@ const legendEl = $('legend');
 const overlayEl = $<HTMLSelectElement>('overlay');
 const spritesEl = $<HTMLInputElement>('sprites');
 const totalsEl = $('totals');
-const folkCountEl = $('folk-count');
+const decidersEl = $('deciders');
 const folkDetailEl = $('folk-detail');
 
 const FIELDS = [
@@ -38,6 +39,7 @@ const FIELDS = [
   { key: 'hillFraction', label: 'Hills', step: 0.05 },
   { key: 'mountainFraction', label: 'Mountains', step: 0.02 },
   { key: 'forestFraction', label: 'Forest', step: 0.05 },
+  { key: 'plantRegrowthScale', label: 'Plant regrowth', step: 0.05 },
 ] as const;
 
 const inputs = new Map<string, HTMLInputElement>();
@@ -69,12 +71,34 @@ function swatch(color: number): HTMLSpanElement {
 }
 
 let species: SpeciesInfo[] = [];
+let deciders: DeciderInfo[] = [];
 const totalValueEls: HTMLElement[] = [];
 
 function showWorld(data: WorldData): void {
   for (const [key, input] of inputs) {
-    input.value = String(data.meta.params[key as keyof typeof data.meta.params]);
+    input.value = String(
+      key === 'plantRegrowthScale'
+        ? data.meta.plantRegrowthScale
+        : data.meta.params[key as keyof typeof data.meta.params],
+    );
   }
+  deciders = data.meta.deciders;
+  decidersEl.replaceChildren(
+    ...deciders.map((d) => {
+      const li = document.createElement('li');
+      li.style.justifyContent = 'space-between';
+      const name = document.createElement('span');
+      name.style.display = 'flex';
+      name.style.gap = '8px';
+      name.style.alignItems = 'center';
+      name.append(swatch(d.color), d.name);
+      const count = document.createElement('span');
+      count.className = 'muted';
+      count.dataset.decider = d.key;
+      li.append(name, count);
+      return li;
+    }),
+  );
   legendEl.replaceChildren(
     ...data.meta.terrain.map((t) => {
       const li = document.createElement('li');
@@ -178,15 +202,26 @@ function bar(label: string, value: number, color: string): HTMLElement {
 }
 
 function describeEvent(e: FolkDetailMessage['events'][number]): string {
+  const at = `tick ${e.tick}:`;
   switch (e.type) {
     case 'eat':
-      return `tick ${e.tick}: ate ${e.food.toFixed(1)} food (satiety ${e.satiety.toFixed(0)})`;
+      return `${at} ate ${e.food.toFixed(1)} (satiety ${e.satiety.toFixed(0)})`;
+    case 'gather':
+      return `${at} gathered ${e.amount.toFixed(1)} ${e.species}`;
+    case 'hunt':
+      return e.success
+        ? `${at} killed ${e.species}, +${e.meat.toFixed(0)} meat`
+        : `${at} missed a ${e.species}`;
+    case 'injure':
+      return `${at} ${e.severity} injury while trying to ${e.action}`;
+    case 'heal':
+      return `${at} healed to ${e.severity === 'none' ? 'full health' : 'a minor injury'}`;
     case 'spawn':
-      return `tick ${e.tick}: appeared (${e.reason})`;
+      return `${at} appeared (${e.reason}, ${e.decider})`;
     case 'die':
-      return `tick ${e.tick}: died of ${e.cause}`;
+      return `${at} died of ${e.cause}`;
     case 'move':
-      return `tick ${e.tick}: moved to ${e.x}, ${e.y}`;
+      return `${at} moved to ${e.x}, ${e.y}`;
   }
 }
 
@@ -230,6 +265,64 @@ function showFolk(msg: FolkDetailMessage): void {
       : `Carrying nothing (capacity ${f.capacity})`;
   inventory.style.margin = '6px 0';
 
+  const decider = deciders.find((d) => d.key === f.decider);
+  const deciderLine = document.createElement('div');
+  deciderLine.style.display = 'flex';
+  deciderLine.style.gap = '8px';
+  deciderLine.style.alignItems = 'center';
+  deciderLine.append(swatch(decider?.color ?? 0x888888), `${decider?.name ?? f.decider} decider`);
+  const injuryLine = document.createElement('div');
+  injuryLine.className = 'muted';
+  injuryLine.textContent =
+    f.injuryName === 'none'
+      ? 'Not injured'
+      : `${f.injuryName} injury (heals a level in ${Math.ceil(f.injuryRemaining)} ticks)`;
+
+  const paramTitle = document.createElement('h2');
+  paramTitle.textContent = 'Parameters';
+  const paramList = document.createElement('div');
+  for (const p of f.params) {
+    const row = document.createElement('div');
+    row.className = 'param-row';
+    const name = document.createElement('span');
+    name.className = 'muted';
+    name.textContent = p.label;
+    const track = document.createElement('div');
+    track.className = 'bar';
+    const fill = document.createElement('span');
+    fill.style.width = `${Math.max(0, Math.min(100, (100 * (p.value - p.min)) / (p.max - p.min || 1)))}%`;
+    fill.style.background = '#8b98a8';
+    track.append(fill);
+    const value = document.createElement('span');
+    value.textContent = p.value.toFixed(2);
+    row.append(name, track, value);
+    paramList.append(row);
+  }
+
+  const chosenTitle = document.createElement('h2');
+  chosenTitle.textContent = `Last decision: ${f.chosen}`;
+  const scoreList = document.createElement('div');
+  const ranked = [...f.scores].sort((a, b) => b.score - a.score);
+  const top = Math.max(0.01, ...ranked.map((s) => Math.abs(s.score)));
+  for (const s of ranked) {
+    if (f.decider !== 'utility') break;
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    const name = document.createElement('span');
+    name.className = 'muted';
+    name.textContent = s.option;
+    const track = document.createElement('div');
+    track.className = 'bar';
+    const fill = document.createElement('span');
+    fill.style.width = `${Math.max(0, Math.min(100, (100 * s.score) / top))}%`;
+    fill.style.background = s.option === f.chosen ? '#5b9bd5' : '#556070';
+    track.append(fill);
+    const value = document.createElement('span');
+    value.textContent = s.score.toFixed(2);
+    row.append(name, track, value);
+    scoreList.append(row);
+  }
+
   const events = document.createElement('div');
   events.className = 'events';
   events.append(
@@ -243,11 +336,17 @@ function showFolk(msg: FolkDetailMessage): void {
   folkDetailEl.className = '';
   folkDetailEl.replaceChildren(
     title,
+    deciderLine,
     bar('Satiety', f.satiety, '#e0a030'),
     bar('Health', f.health, '#d05050'),
     bar('Energy', f.energy, '#4f9bd9'),
+    injuryLine,
     dl,
     inventory,
+    chosenTitle,
+    scoreList,
+    paramTitle,
+    paramList,
     events,
   );
 }
@@ -294,7 +393,10 @@ const conn = connect(SERVER_URL, {
       showTile(msg);
     } else if (msg.type === 'folk') {
       view.setFolk(msg.folk);
-      folkCountEl.textContent = `${msg.folk.length} alive`;
+      for (const el of decidersEl.querySelectorAll<HTMLElement>('[data-decider]')) {
+        const n = msg.folk.filter((f) => f.decider === el.dataset.decider).length;
+        el.textContent = `${n} alive`;
+      }
       if (selectedFolk !== null) conn.send({ type: 'inspectFolk', id: selectedFolk });
     } else if (msg.type === 'folkDetail') {
       showFolk(msg);

@@ -6,6 +6,13 @@ export interface TerrainInfo {
   color: number;
 }
 
+export interface DeciderInfo {
+  key: string;
+  name: string;
+  color: number;
+  params: { key: string; label: string; min: number; max: number }[];
+}
+
 export interface SpeciesInfo {
   id: number;
   key: string;
@@ -21,6 +28,9 @@ export interface WorldMessage {
   params: WorldParams;
   terrain: TerrainInfo[];
   species: SpeciesInfo[];
+  deciders: DeciderInfo[];
+  /** Plant regrowth relative to the default (below 1 means scarcer food). */
+  plantRegrowthScale: number;
 }
 
 /**
@@ -69,6 +79,11 @@ export interface FolkInfo {
   satiety: number;
   health: number;
   energy: number;
+  /** Decider key and its map color. */
+  decider: string;
+  color: number;
+  /** 0 none, 1 minor, 2 serious. */
+  injury: number;
 }
 
 /** Positions and needs of every Folk, sent every tick. */
@@ -90,6 +105,14 @@ export interface FolkDetailMessage {
     inventory: { key: string; name: string; amount: number }[];
     carried: number;
     capacity: number;
+    /** The decider's parameter array with each parameter's allowed range. */
+    params: { key: string; label: string; value: number; min: number; max: number }[];
+    injuryName: string;
+    /** Ticks until the injury heals one level (0 if uninjured). */
+    injuryRemaining: number;
+    /** What the last decision chose, and the score of each option it could pick (utility only). */
+    chosen: string;
+    scores: { option: string; score: number }[];
   };
   /** Most recent events involving this Folk, oldest first. */
   events: SimEvent[];
@@ -105,6 +128,6 @@ export type ClientMessage =
   | { type: 'resume' }
   | { type: 'speed'; speed: number }
   | { type: 'subscribe'; resources: boolean }
-  | { type: 'generate'; params: Partial<WorldParams> }
+  | { type: 'generate'; params: Partial<WorldParams> & { plantRegrowthScale?: number } }
   | { type: 'inspect'; x: number; y: number }
   | { type: 'inspectFolk'; id: number };

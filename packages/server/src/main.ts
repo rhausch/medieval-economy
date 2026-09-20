@@ -2,9 +2,14 @@ import { WebSocketServer, type WebSocket } from 'ws';
 import { startRun, type RunLogger } from '@folk/runlog';
 import {
   createSim,
+  DECIDERS,
+  INJURY,
+  OPTION_COUNT,
+  OPTION_NAMES,
   FOLK,
   GOODS_LIST,
   FOLK_ACTIONS,
+  MAX_PARAMS,
   type SimEvent,
   speciesTotals,
   SPECIES_LIST,
@@ -21,7 +26,9 @@ const RESOURCE_MS = 250;
 const MAX_TILES = 4096 * 4096;
 const SPEEDS = [1, 2, 5, 10, 20];
 
-let sim: Sim = createSim({ seed: Number(process.env.SEED ?? 1) });
+let plantRegrowthScale = Number(process.env.REGROWTH ?? 1);
+let sim: Sim = createSim({ seed: Number(process.env.SEED ?? 1), plantRegrowthScale });
+
 let paused = false;
 let speed = 1;
 
@@ -32,7 +39,7 @@ const RECENT_PER_FOLK = 12;
 const RECENT_MAX_FOLK = 500;
 
 function beginRun(target: Sim): RunLogger {
-  const run = startRun(target, { extra: { decider: 'rules', source: 'server' } });
+  const run = startRun(target, { extra: { source: 'server' } });
   console.log(`logging run to ${run.dir}`);
   return run;
 }
@@ -75,6 +82,9 @@ function folkInfo(slot: number): FolkInfo {
     satiety: f.satiety[slot]!,
     health: f.health[slot]!,
     energy: f.energy[slot]!,
+    decider: DECIDERS[f.decider[slot]!]!.key,
+    color: DECIDERS[f.decider[slot]!]!.color,
+    injury: f.injury[slot]!,
   };
 }
 
@@ -114,6 +124,20 @@ function sendFolkDetail(socket: WebSocket, id: number): void {
       inventory,
       carried: inventory.reduce((sum, item, k) => sum + item.amount * GOODS_LIST[k]!.weight, 0),
       capacity: FOLK.carryCapacity,
+      params: DECIDERS[f.decider[slot]!]!.params.map((spec, i) => ({
+        key: spec.key,
+        label: spec.label,
+        value: f.params[slot * MAX_PARAMS + i]!,
+        min: spec.min,
+        max: spec.max,
+      })),
+      injuryName: INJURY.names[f.injury[slot]!] ?? 'none',
+      injuryRemaining: f.injury[slot]! > 0 ? Math.max(0, f.injuryTimer[slot]!) : 0,
+      chosen: OPTION_NAMES[f.choice[slot]!] ?? 'wander',
+      scores: OPTION_NAMES.map((option, k) => ({
+        option,
+        score: f.scores[slot * OPTION_COUNT + k]!,
+      })).filter((entry) => !Number.isNaN(entry.score)),
     },
     events,
   };
@@ -126,6 +150,13 @@ function sendWorld(socket: WebSocket): void {
     type: 'world',
     params: world.params,
     terrain: TERRAIN_LIST.map((t) => ({ id: t.id, name: t.name, color: t.color })),
+    deciders: DECIDERS.map((d) => ({
+      key: d.key,
+      name: d.name,
+      color: d.color,
+      params: [...d.params],
+    })),
+    plantRegrowthScale,
     species: SPECIES_LIST.map((s) => ({
       id: s.id,
       key: s.key,
@@ -194,14 +225,19 @@ function sendTile(socket: WebSocket, x: number, y: number): void {
   socket.send(JSON.stringify(msg));
 }
 
-function regenerate(params: Partial<WorldParams>): void {
+function regenerate(params: Partial<WorldParams> & { plantRegrowthScale?: number }): void {
   const width = Math.floor(Number(params.width ?? sim.world.width));
   const height = Math.floor(Number(params.height ?? sim.world.height));
   if (!(width >= 8 && height >= 8 && width * height <= MAX_TILES)) return;
   logger.close(sim);
+  const { plantRegrowthScale: scale, ...world } = params;
+  if (scale !== undefined && Number.isFinite(Number(scale)) && Number(scale) > 0) {
+    plantRegrowthScale = Number(scale);
+  }
   sim = createSim({
     seed: Number(params.seed ?? sim.config.seed),
-    world: { ...params, width, height },
+    plantRegrowthScale,
+    world: { ...world, width, height },
   });
   logger = beginRun(sim);
   recentEvents.clear();
