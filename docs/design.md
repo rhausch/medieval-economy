@@ -48,7 +48,7 @@ Eating takes one tick and eats up to 10 units from the inventory, best food per 
 
 **Later frameworks:** GOAP or HTN when multi-step chains (crafting, trade, storage) arrive, with utility choosing goals and a planner producing steps; a behavior tree, reinforcement learning or an LLM for a few notable Folk remain possible behind the same interface. A genetic algorithm would evolve the parameter arrays.
 
-**Not yet:** per-decision timing and the benchmark harness (milestone 6), perception limits and memory, a shared blackboard, planning (GOAP or HTN).
+**Not yet:** perception limits and memory, a shared blackboard, planning (GOAP or HTN).
 
 **Perception (v1):** full map knowledge within the search depth (60 tiles), a stand-in for the perception and memory to come.
 
@@ -80,15 +80,35 @@ Parameters: `seed`, `width`, `height`, `noiseScale` (feature size in tiles), `oc
 - Click a Folk: decider, needs, injury and when it heals, position and action, skills, inventory, the last decision and (for utility Folk) the score of every option, the parameter array with ranges, and recent events.
   Requires read-only queryable sim state by id and coordinate.
 
+## Tracking and analysis (implemented)
+
+The sim keeps cumulative counters, indexed by decider so the deciders can be compared in one world, and exposes them through `sim.metrics`:
+
+- **Time:** Folk-ticks spent on each action (idle, moving, eating, resting, gathering, digging, snaring, chasing).
+- **Energy:** energy spent while doing each action, and energy regained by resting or idling.
+- **Food sources:** for every decider, species and terrain type: attempts, successes, units taken and the satiety those units are worth.
+- **Consumption:** units and satiety eaten per good.
+- **Per-Folk lifetime counters:** meals, satiety eaten, plant and meat units, attempts, successes, injuries, energy spent and steps. Written when a Folk dies (in the `die` event) and for the survivors at the end of the run.
+- **World food:** stock and capacity of every species on every terrain type, and units of each good carried by Folk (computed on demand from the ecology).
+  Food is conserved and tested: every unit taken from the world is either eaten or still carried.
+
+**Performance:** the sim never reads a clock. A caller injects a `timer` (for example `performance.now`) and the sim then records, as count, mean, max and a log-scale histogram (quantiles accurate to about 19%): each whole tick, its ecology and Folk phases, the shared search for work, and each decider's own `decide()`. Timing never changes what the simulation does (tested). Decision times under about 1.2 microseconds are at the timer's resolution floor.
+
+**Where you see it:** the client's Stats panel (updated once a second: ticks per second, ms per tick split into ecology and Folk, decisions per tick, decision percentiles per decider, food by terrain, time and energy by action, food sources), the run logs, and the Python analysis. `npm run bench` runs the benchmark matrix (Folk count by decider mode) and `docs/performance.md` records a baseline.
+
 ## Logging (for Python analysis)
 
 Implemented in `packages/runlog`, used by both the server and the headless CLI. Each run writes `experiments/output/<run-id>/` (git-ignored):
 
-- `manifest.json`: run id, start and end time, ticks, seed, full world parameters, ecology interval, Folk count, snapshot interval, species and goods lists, settlement, git commit and dirty flag, Node version, and extra fields such as the decider. Finalized (end time, tick count) when the run closes, including on server shutdown.
-- `events.jsonl`: append-only, one JSON object per line with `tick`, `type` and the fields of that type. Types now: `spawn` (with decider and parameter array), `eat`, `gather`, `hunt` (with success), `injure`, `heal`, `die` (starvation or injury), and optionally `move` (one per step; off by default because of volume). User actions arrive with their feature.
-- `entities.csv`: a snapshot of every Folk every N ticks (default 10) plus a final one: stats, action, decider, injury level, skills and inventory columns.
-- `resources.csv`: total stock per species at the same snapshot ticks. Full per-tile snapshots are not written yet.
-  `scripts/summarize_run.py` summarizes a run with the standard library; the files also load directly into pandas. Determinism means a replay from the manifest should reproduce the logs; an automated replay check is still to do.
+- `manifest.json`: run id, start and end time, ticks, seed, full world parameters, ecology interval, regrowth scale, Folk count, decider mix and each decider's parameter specs, action table, injury table, snapshot and metrics intervals, whether it was timed, species and goods lists, settlement, git commit and dirty flag, Node version. Finalized (end time, tick count) when the run closes, including on server shutdown.
+- `events.jsonl`: append-only, one JSON object per line with `tick`, `type` and the fields of that type: `spawn` (with decider and parameter array), `eat`, `gather`, `hunt`, `injure`, `heal`, `die` (with cause, lifetime and counters), and optionally `move` (off by default because of volume).
+- `entities.csv`: a snapshot of every Folk every N ticks (default 10) plus a final one: stats, action, decider, injury level, skills and inventory.
+- `resources.csv`: total stock per species and food carried, at the same ticks.
+- `terrain_resources.csv`: stock and capacity per terrain type and species, every M ticks (default 100).
+- `activity.csv`, `food_sources.csv`, `consumption.csv`: the cumulative time, energy and food counters above, every M ticks.
+- `lifetimes.csv`: one row per Folk (at death, or at the end of the run): decider, birth and death tick, cause, counters and the parameter array, ready to use as fitness data for a genetic algorithm.
+- `performance.json`: timing summaries, when the run was timed.
+  `scripts/summarize_run.py` gives a quick text summary; `scripts/analyze_run.py` and `notebooks/analyze_run.ipynb` load everything into pandas and plot it. A test runs the analysis on a freshly logged run so the two stay in step. Determinism means a replay from the manifest should reproduce the logs; an automated replay check is still to do.
 
 ## Extension points (planned, not built)
 

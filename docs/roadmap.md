@@ -23,8 +23,8 @@ Each milestone ends in something to look at or play with, followed by a feedback
 2. **World** (done). Seeded, configurable world generation. Terrain rendered in the browser with pan and zoom. Click a tile to inspect it.
 3. **Resources** (done). Four resource fields with regrowth and diffusion, a toggleable overlay, and resource stocks in the tile inspector.
 4. **Folk, minimal, with basic logging** (done). A few Folk with stats and inventory who wander and eat. Click a Folk to inspect it. Run folder with `manifest.json` and `events.jsonl`, plus periodic CSV snapshots, readable from Python.
-5. **Actions and decisions** (in review). Gather, dig, snare and chase. Rule-based and utility AI deciders behind the `decide()` interface, with trait and weight variation, deaths and replacement spawns.
-6. **Analysis and benchmarks.** A Python notebook analysing run logs, per-decision performance logging, and the decision-time benchmark harness.
+5. **Actions and decisions** (done). Gather, dig, snare and chase. Rule-based and utility AI deciders behind the `decide()` interface, with trait and weight variation, deaths and replacement spawns.
+6. **Analysis and benchmarks** (in review). A Python notebook analysing run logs, per-decision performance logging, and the decision-time benchmark harness.
 
 ## Later (candidates)
 

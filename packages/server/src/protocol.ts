@@ -1,7 +1,8 @@
-import type { SimEvent, WorldParams } from '@folk/sim';
+import type { ActivityRow, ConsumptionRow, SimEvent, SourceRow, WorldParams } from '@folk/sim';
 
 export interface TerrainInfo {
   id: number;
+  key: string;
   name: string;
   color: number;
 }
@@ -42,6 +43,42 @@ export interface ResourcesMessage {
   tick: number;
   /** Total stock per species across the world. */
   totals: number[];
+}
+
+export interface TimingInfo {
+  p50Us: number;
+  p95Us: number;
+  p99Us: number;
+  maxUs: number;
+}
+
+/** Sent about once a second: performance, and the running totals used for tuning. */
+export interface StatsMessage {
+  type: 'stats';
+  tick: number;
+  /** Null unless the sim is being timed. Rates cover the time since the previous message. */
+  perf: {
+    ticksPerSecond: number;
+    msPerTick: number;
+    ecologyMsPerTick: number;
+    folkMsPerTick: number;
+    decisionsPerTick: number;
+    /** Decision timings cover the whole run so far. */
+    scan: TimingInfo;
+    deciders: ({ key: string; decisions: number } & TimingInfo)[];
+  } | null;
+  /** Stock and capacity of every species on every terrain type. */
+  terrains: {
+    terrain: string;
+    tiles: number;
+    species: { key: string; habitable: number; stock: number; capacity: number }[];
+  }[];
+  /** Units of each good currently carried by Folk. */
+  carried: Record<string, number>;
+  /** Cumulative since the run began. */
+  activity: ActivityRow[];
+  sources: SourceRow[];
+  consumption: ConsumptionRow[];
 }
 
 export interface TickMessage {
@@ -120,7 +157,13 @@ export interface FolkDetailMessage {
 
 /** Messages the server sends to clients (binary data follows a WorldMessage or ResourcesMessage). */
 export type ServerMessage =
-  WorldMessage | ResourcesMessage | TickMessage | TileMessage | FolkMessage | FolkDetailMessage;
+  | WorldMessage
+  | ResourcesMessage
+  | TickMessage
+  | StatsMessage
+  | TileMessage
+  | FolkMessage
+  | FolkDetailMessage;
 
 /** Messages clients send to the server. */
 export type ClientMessage =

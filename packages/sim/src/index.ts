@@ -17,3 +17,20 @@ export type { SimEvent } from './events';
 export { DECIDERS, deciderByKey, MAX_PARAMS, type DeciderDef, type ParamSpec } from './deciders';
 export { FORAGE_ACTIONS, OPTION, OPTION_NAMES, OPTION_COUNT, type ForageDef } from './data/actions';
 export { INJURY } from './data/folk';
+export {
+  COUNTER_NAMES,
+  COUNTER_COUNT,
+  SOURCE_FIELDS,
+  activityRows,
+  carriedTotals,
+  consumptionRows,
+  folkCounters,
+  sourceRows,
+  terrainResources,
+  type ActivityRow,
+  type ConsumptionRow,
+  type Metrics,
+  type SourceRow,
+  type TerrainResourceRow,
+} from './metrics';
+export { TimingStat, resetPerf, summarize, type Perf, type TimingSummary } from './perf';

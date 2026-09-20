@@ -7,6 +7,7 @@ import {
   type WorldData,
 } from './net';
 import { WorldView } from './renderer';
+import { createStatsView } from './stats';
 
 const SERVER_PORT = import.meta.env.VITE_SERVER_PORT ?? '8787';
 const SERVER_URL = `ws://${location.hostname}:${SERVER_PORT}`;
@@ -26,6 +27,7 @@ const overlayEl = $<HTMLSelectElement>('overlay');
 const spritesEl = $<HTMLInputElement>('sprites');
 const totalsEl = $('totals');
 const decidersEl = $('deciders');
+const statsView = createStatsView($('stats'));
 const folkDetailEl = $('folk-detail');
 
 const FIELDS = [
@@ -133,6 +135,7 @@ function showWorld(data: WorldData): void {
     }),
   );
 
+  statsView.setWorld(data.meta.species, data.meta.terrain, data.meta.deciders);
   view.setWorld(data);
   tileEl.textContent = 'Click a tile to inspect it.';
   tileEl.className = 'muted';
@@ -398,6 +401,8 @@ const conn = connect(SERVER_URL, {
         el.textContent = `${n} alive`;
       }
       if (selectedFolk !== null) conn.send({ type: 'inspectFolk', id: selectedFolk });
+    } else if (msg.type === 'stats') {
+      statsView.update(msg);
     } else if (msg.type === 'folkDetail') {
       showFolk(msg);
     }

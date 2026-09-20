@@ -1,6 +1,11 @@
 import { WebSocketServer, type WebSocket } from 'ws';
 import { startRun, type RunLogger } from '@folk/runlog';
 import {
+  activityRows,
+  carriedTotals,
+  consumptionRows,
+  sourceRows,
+  terrainResources,
   createSim,
   DECIDERS,
   INJURY,
@@ -18,16 +23,18 @@ import {
   type Sim,
   type WorldParams,
 } from '@folk/sim';
-import type { ClientMessage, FolkInfo, ServerMessage } from './protocol';
+import type { ClientMessage, FolkInfo, ServerMessage, StatsMessage, TimingInfo } from './protocol';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const TICK_MS = 100;
 const RESOURCE_MS = 250;
+const STATS_MS = 1000;
 const MAX_TILES = 4096 * 4096;
 const SPEEDS = [1, 2, 5, 10, 20];
 
 let plantRegrowthScale = Number(process.env.REGROWTH ?? 1);
-let sim: Sim = createSim({ seed: Number(process.env.SEED ?? 1), plantRegrowthScale });
+const timer = (): number => performance.now();
+let sim: Sim = createSim({ seed: Number(process.env.SEED ?? 1), plantRegrowthScale, timer });
 
 let paused = false;
 let speed = 1;
@@ -144,12 +151,89 @@ function sendFolkDetail(socket: WebSocket, id: number): void {
   socket.send(JSON.stringify(msg));
 }
 
+/** Totals at the previous stats message, so rates can be reported for the interval in between. */
+let lastStats: {
+  wall: number;
+  ticks: number;
+  stepMs: number;
+  ecologyMs: number;
+  folkMs: number;
+  decisions: number;
+} | null = null;
+
+const micros = (ms: number): number => ms * 1000;
+const timingInfo = (stat: { quantileMs(q: number): number; maxMs: number }): TimingInfo => ({
+  p50Us: micros(stat.quantileMs(0.5)),
+  p95Us: micros(stat.quantileMs(0.95)),
+  p99Us: micros(stat.quantileMs(0.99)),
+  maxUs: micros(stat.maxMs),
+});
+
+function buildStats(): StatsMessage {
+  const { perf, world, ecology } = sim;
+  let perfInfo: StatsMessage['perf'] = null;
+  if (perf) {
+    const decisions = perf.decide.reduce((sum, s) => sum + s.count, 0);
+    const now = performance.now();
+    const previous = lastStats;
+    const ticks = perf.step.count - (previous?.ticks ?? 0);
+    const wall = now - (previous?.wall ?? now);
+    if (previous && ticks > 0) {
+      perfInfo = {
+        ticksPerSecond: wall > 0 ? (ticks * 1000) / wall : 0,
+        msPerTick: (perf.step.totalMs - previous.stepMs) / ticks,
+        ecologyMsPerTick: (perf.ecology.totalMs - previous.ecologyMs) / ticks,
+        folkMsPerTick: (perf.folk.totalMs - previous.folkMs) / ticks,
+        decisionsPerTick: (decisions - previous.decisions) / ticks,
+        scan: timingInfo(perf.scan),
+        deciders: DECIDERS.map((d, i) => ({
+          key: d.key,
+          decisions: perf.decide[i]!.count,
+          ...timingInfo(perf.decide[i]!),
+        })),
+      };
+    }
+    lastStats = {
+      wall: now,
+      ticks: perf.step.count,
+      stepMs: perf.step.totalMs,
+      ecologyMs: perf.ecology.totalMs,
+      folkMs: perf.folk.totalMs,
+      decisions,
+    };
+  }
+  const rows = terrainResources(world, ecology);
+  const terrains = TERRAIN_LIST.map((t) => {
+    const mine = rows.filter((r) => r.terrain === t.key);
+    return {
+      terrain: t.name,
+      tiles: mine[0]?.tiles ?? 0,
+      species: mine.map((r) => ({
+        key: r.species,
+        habitable: r.habitable,
+        stock: r.stock,
+        capacity: r.capacity,
+      })),
+    };
+  });
+  return {
+    type: 'stats',
+    tick: sim.tick,
+    perf: perfInfo,
+    terrains,
+    carried: carriedTotals(sim.folk),
+    activity: activityRows(sim.metrics),
+    sources: sourceRows(sim.metrics),
+    consumption: consumptionRows(sim.metrics),
+  };
+}
+
 function sendWorld(socket: WebSocket): void {
   const { world } = sim;
   const meta: ServerMessage = {
     type: 'world',
     params: world.params,
-    terrain: TERRAIN_LIST.map((t) => ({ id: t.id, name: t.name, color: t.color })),
+    terrain: TERRAIN_LIST.map((t) => ({ id: t.id, key: t.key, name: t.name, color: t.color })),
     deciders: DECIDERS.map((d) => ({
       key: d.key,
       name: d.name,
@@ -237,8 +321,10 @@ function regenerate(params: Partial<WorldParams> & { plantRegrowthScale?: number
   sim = createSim({
     seed: Number(params.seed ?? sim.config.seed),
     plantRegrowthScale,
+    timer,
     world: { ...world, width, height },
   });
+  lastStats = null;
   logger = beginRun(sim);
   recentEvents.clear();
   record();
@@ -311,6 +397,10 @@ setInterval(() => {
 setInterval(() => {
   if (!paused) sendResources(wantsResources);
 }, RESOURCE_MS);
+
+setInterval(() => {
+  if (!paused && clients.size > 0) broadcast(buildStats());
+}, STATS_MS);
 
 console.log(`sim server listening on ws://localhost:${PORT}`);
 

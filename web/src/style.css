@@ -185,3 +185,49 @@ input[type='checkbox'] {
 .param-row .bar {
   margin: 2px 0;
 }
+details {
+  margin: 4px 0;
+}
+summary {
+  cursor: pointer;
+  color: var(--text);
+}
+.stats-body {
+  margin: 6px 0 8px;
+  font-size: 12px;
+}
+.stats-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 2px;
+  font-weight: 600;
+}
+.share-row {
+  display: grid;
+  grid-template-columns: 66px 1fr 78px;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.share-row .bar {
+  margin: 2px 0;
+}
+.stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+.stats-table th,
+.stats-table td {
+  text-align: right;
+  padding: 1px 3px;
+  font-weight: normal;
+}
+.stats-table th:first-child {
+  text-align: left;
+  color: var(--muted);
+}
+.stats-table tr:first-child th {
+  color: var(--muted);
+}

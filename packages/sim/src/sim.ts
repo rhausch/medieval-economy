@@ -3,6 +3,8 @@ import { FOLK } from './data/folk';
 import type { SimEvent } from './events';
 import { createFolkContext, stepFolk } from './folk/behaviour';
 import { createFolkStore, initFolk, walkableTable, type FolkStore } from './folk/store';
+import { createMetrics, type Metrics } from './metrics';
+import { createPerf, type Perf } from './perf';
 import { createEcology, scaleRegrowth, stepEcology, type Ecology } from './ecology';
 import { SPECIES_LIST } from './data/species';
 import { DECIDERS, deciderByKey } from './deciders';
@@ -18,6 +20,8 @@ export interface SimConfig {
   folkCount?: number;
   /** Plant regrowth (and animal appetite) relative to the default; below 1 makes food scarcer. */
   plantRegrowthScale?: number;
+  /** Clock for timing (e.g. `performance.now`). The sim never reads a clock itself; without one, no timing is recorded. */
+  timer?: () => number;
   /** Multiplier on how fast Folk get hungry (1 = default). Higher makes food scarcer relative to need. */
   hungerScale?: number;
   /** Decider keys handed out to Folk in turn (default: every decider, evenly). */
@@ -32,6 +36,10 @@ export interface Sim {
   readonly world: World;
   readonly ecology: Ecology;
   readonly folk: FolkStore;
+  /** Cumulative counters for tuning and analysis. */
+  readonly metrics: Metrics;
+  /** Timing statistics, or null when no timer was given. */
+  readonly perf: Perf | null;
   /** Number of completed ticks. */
   readonly tick: number;
   /** Return and clear the events produced since the last call. */
@@ -68,10 +76,14 @@ export function createSim(config: SimConfig): Sim {
       params: born.params,
     });
   }
+  const metrics = createMetrics(folk.count);
+  const perf = config.timer ? createPerf(config.timer, DECIDERS.length) : null;
   const folkContext = createFolkContext(
     world,
     ecology,
     folk,
+    metrics,
+    perf,
     rng,
     events,
     config.emitMoves ?? false,
@@ -84,6 +96,8 @@ export function createSim(config: SimConfig): Sim {
     world,
     ecology,
     folk,
+    metrics,
+    perf,
     get tick() {
       return tick;
     },
@@ -92,8 +106,19 @@ export function createSim(config: SimConfig): Sim {
     },
     step() {
       tick += 1;
+      if (!perf) {
+        if (tick % interval === 0) stepEcology(world, ecology);
+        stepFolk(folkContext, tick);
+        return;
+      }
+      const t0 = perf.timer();
       if (tick % interval === 0) stepEcology(world, ecology);
+      const t1 = perf.timer();
       stepFolk(folkContext, tick);
+      const t2 = perf.timer();
+      perf.ecology.record(t1 - t0);
+      perf.folk.record(t2 - t1);
+      perf.step.record(t2 - t0);
     },
   };
 }
