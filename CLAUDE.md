@@ -5,19 +5,23 @@ A web-based, top-down tile game (minimalist, clear graphics on a large board) fo
 Development is iterative: build a small slice, playtest with the user, record feedback, update the roadmap, repeat. Do not build ahead of the roadmap.
 
 ## Status
+
 Phase 1 (interactive design session) is complete. Phase 2 (MVP) has six milestones; see `docs/roadmap.md`. See `docs/roadmap.md`, `docs/design.md`, `docs/decisions.md`.
 
 ## Stack
+
 TypeScript on Node 22, as a monorepo with npm workspaces:
+
 - `packages/sim`: pure simulation library (no I/O, seeded, deterministic)
 - `packages/server`: Node process that runs the sim, writes run logs, and streams deltas to the browser over WebSocket
 - `packages/cli`: headless runner and benchmarks (same sim package)
 - `web/`: Vite client with PixiJS/WebGL; viewer and command sender only
 - `data/`: actions, goods, world presets (data-driven)
 - `scripts/`: Python analysis scripts
-Tooling: ESLint, Prettier, Vitest, tinybench, GitHub Actions on PRs. Runs locally in WSL; browser on Windows reaches it via localhost.
+  Tooling: ESLint, Prettier, Vitest, tinybench, GitHub Actions on PRs. Runs locally in WSL; browser on Windows reaches it via localhost.
 
 ## Architecture rules
+
 - The sim is pure TypeScript: no DOM, no I/O, no `Math.random` or `Date.now`. All randomness goes through a seeded RNG. Avoid `Math.exp`/`Math.pow` and similar where cross-engine determinism matters.
 - Data-oriented storage: tiles and Folk as typed-array columns (structure-of-arrays), not per-object graphs, so hot kernels stay small and portable (worker threads, WebGPU, or Rust/WASM later if profiling demands).
 - Fixed-timestep ticks. The client renders state and never mutates the sim. The server streams deltas filtered by viewport.
@@ -27,6 +31,7 @@ Tooling: ESLint, Prettier, Vitest, tinybench, GitHub Actions on PRs. Runs locall
 - Design for extension: new goods, policies and behaviours are additions, not rewrites.
 
 ## Development workflow
+
 - **Branching:** trunk-based. `main` is protected and always working. Do all work on short-lived branches named `type/short-description` (`feat/`, `fix/`, `refactor/`, `docs/`, `chore/`, `test/`). Never commit directly to `main`.
 - **Commits:** Conventional Commits (`feat: add hunger need`, `fix(sim): ...`). Small, focused, frequent. Explain why in the body when it is not obvious.
 - **Pull requests:** open a PR per branch with `gh pr create`, keep it small, squash-merge to `main`, delete the branch. The user approves in chat (based on a summary of changes or a playtest), never on GitHub: present the summary, wait for chat approval, then merge.
@@ -36,9 +41,17 @@ Tooling: ESLint, Prettier, Vitest, tinybench, GitHub Actions on PRs. Runs locall
 - **Docs:** record design choices in `docs/decisions.md` (date, decision, why, alternatives). Update `docs/roadmap.md` after each playtest.
 
 ## Commands
-Not yet defined. Fill in once the project is scaffolded (dev, build, test, lint, headless run, benchmark).
+
+- `npm install`: install all workspaces (also installs git hooks)
+- `npm run dev`: sim server (ws://localhost:8787) and web client (http://localhost:5173)
+- `npm run sim -- --seed 1 --ticks 1000`: headless run
+- `npm test`: Vitest; `npm run test:watch` for watch mode
+- `npm run lint`, `npm run format`, `npm run typecheck`
+- `npm run check`: lint, format check, typecheck and tests (what CI runs)
+- Git hooks: pre-commit runs lint-staged and typecheck; pre-push runs tests.
 
 ## Skills (in `.claude/skills/`)
+
 - `playtest-feedback`: turn playtest impressions into roadmap changes
 - `run-experiment`: run the headless sim with a policy and seed, summarize metrics
 - `add-policy`: checklist for adding an economic rule end to end
