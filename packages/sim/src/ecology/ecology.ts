@@ -34,6 +34,20 @@ function habitatCapacity(def: SpeciesDef, world: World): Float32Array {
   return out;
 }
 
+/**
+ * Slow (or speed up) the whole plant-and-animal system: plants regrow at `scale` times the rate and
+ * animals eat `scale` times as much, so the balance between them holds while plant supply shrinks
+ * relative to what Folk need. A stand-in for seasons.
+ */
+export function scaleRegrowth(species: readonly SpeciesDef[], scale: number): SpeciesDef[] {
+  if (scale === 1) return [...species];
+  return species.map((def) =>
+    def.kind === 'plant'
+      ? { ...def, growthRate: def.growthRate * scale, seedRate: def.seedRate * scale }
+      : { ...def, intake: def.intake * scale },
+  );
+}
+
 /** Build capacities from terrain and moisture, and start every tile at a random fraction of capacity. */
 export function createEcology(
   world: World,

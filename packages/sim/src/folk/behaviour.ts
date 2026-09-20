@@ -1,15 +1,40 @@
-import { FOLK, FOLK_ACTIONS } from '../data/folk';
+import {
+  FORAGE_ACTIONS,
+  MAX_SUCCESS,
+  OPTION,
+  OPTION_COUNT,
+  PENDING_IDLE,
+  PENDING_MOVE,
+  PENDING_NONE,
+  SKILL_GAIN,
+  SKILL_SUCCESS_BONUS,
+  SKILL_YIELD_BONUS,
+  forageDef,
+  type ForageDef,
+} from '../data/actions';
+import { FOLK, FOLK_ACTIONS, INJURY } from '../data/folk';
+import { GOODS_LIST } from '../data/goods';
+import { DECIDERS, MAX_PARAMS, type Intent, type Senses } from '../deciders';
 import type { Ecology } from '../ecology';
 import type { SimEvent } from '../events';
 import type { Rng } from '../rng';
 import type { World } from '../world';
 import { initFolk, walkableTable, type FolkStore } from './store';
 
-const ACTION = {
-  idle: FOLK_ACTIONS.indexOf('idle'),
-  moving: FOLK_ACTIONS.indexOf('moving'),
-  eating: FOLK_ACTIONS.indexOf('eating'),
-  resting: FOLK_ACTIONS.indexOf('resting'),
+const ACTION = Object.fromEntries(FOLK_ACTIONS.map((name, i) => [name, i])) as Record<
+  (typeof FOLK_ACTIONS)[number],
+  number
+>;
+/** The action label shown while a Folk is busy with each option. */
+const OPTION_LABEL: Record<number, number> = {
+  [OPTION.eat]: ACTION.eating,
+  [OPTION.gather]: ACTION.gathering,
+  [OPTION.dig]: ACTION.digging,
+  [OPTION.snare]: ACTION.snaring,
+  [OPTION.chase]: ACTION.chasing,
+  [OPTION.rest]: ACTION.resting,
+  [PENDING_MOVE]: ACTION.moving,
+  [PENDING_IDLE]: ACTION.idle,
 };
 
 /** Neighbour offsets in a fixed order so searches are deterministic. */
@@ -20,6 +45,14 @@ const DIRS: readonly (readonly [number, number])[] = [
   [-1, 0],
 ];
 
+const goodIndex = (key: string): number => GOODS_LIST.findIndex((g) => g.key === key);
+
+interface ForageTarget {
+  def: ForageDef;
+  species: number;
+  good: number;
+}
+
 export interface FolkContext {
   readonly world: World;
   readonly eco: Ecology;
@@ -27,11 +60,15 @@ export interface FolkContext {
   readonly rng: Rng;
   readonly events: SimEvent[];
   readonly emitMoves: boolean;
+  /** Multiplier on satiety decay. */
+  readonly hungerScale: number;
   readonly walkable: Uint8Array;
-  readonly plantSpecies: readonly number[];
+  readonly forage: readonly ForageTarget[];
+  readonly senses: Senses;
+  readonly intent: Intent;
   readonly search: {
     queue: Int32Array;
-    firstStep: Int32Array;
+    parent: Int32Array;
     stamp: Uint32Array;
     current: number;
   };
@@ -44,8 +81,14 @@ export function createFolkContext(
   rng: Rng,
   events: SimEvent[],
   emitMoves: boolean,
+  hungerScale: number,
 ): FolkContext {
   const n = world.width * world.height;
+  const forage = FORAGE_ACTIONS.map((def) => {
+    const species = eco.species.findIndex((s) => s.key === def.species);
+    if (species < 0) throw new Error(`action ${def.key} works unknown species ${def.species}`);
+    return { def, species, good: goodIndex(def.good) };
+  });
   return {
     world,
     eco,
@@ -53,31 +96,78 @@ export function createFolkContext(
     rng,
     events,
     emitMoves,
+    hungerScale,
     walkable: walkableTable(),
-    plantSpecies: eco.species.flatMap((d, s) => (d.kind === 'plant' ? [s] : [])),
+    forage,
+    senses: {
+      x: 0,
+      y: 0,
+      satiety: 0,
+      health: 0,
+      energy: 0,
+      injury: 0,
+      foodSatiety: 0,
+      room: 0,
+      foraging: 0,
+      hunting: 0,
+      resting: false,
+      durationMultiplier: 1,
+      params: store.params,
+      paramBase: 0,
+      targetTile: new Int32Array(OPTION_COUNT),
+      targetDist: new Int32Array(OPTION_COUNT),
+    },
+    intent: { option: OPTION.wander, tile: -1 },
     search: {
       queue: new Int32Array(n),
-      firstStep: new Int32Array(n),
+      parent: new Int32Array(n),
       stamp: new Uint32Array(n),
       current: 0,
     },
   };
 }
 
-function plantFoodAt(ctx: FolkContext, tile: number): number {
-  let sum = 0;
-  for (const s of ctx.plantSpecies) sum += ctx.eco.stock[s]![tile]!;
-  return sum;
+/** Weight the Folk carries. */
+function carried(ctx: FolkContext, slot: number): number {
+  let weight = 0;
+  GOODS_LIST.forEach((g, k) => {
+    weight += ctx.store.inventory[slot * GOODS_LIST.length + k]! * g.weight;
+  });
+  return weight;
+}
+
+/** Satiety the Folk would gain by eating everything edible it carries. */
+function foodSatiety(ctx: FolkContext, slot: number): number {
+  let total = 0;
+  GOODS_LIST.forEach((g, k) => {
+    if (g.edible) total += ctx.store.inventory[slot * GOODS_LIST.length + k]! * g.foodValue;
+  });
+  return total;
 }
 
 /**
- * Breadth-first search over walkable tiles for the nearest tile with enough plant food.
- * Returns the tile index of the first step toward it, or -1 if none is within reach.
- * Folk currently know the whole map (within search depth); perception limits come later.
+ * Breadth-first search over walkable tiles. For every foraging option it records the nearest tile
+ * that has enough of the species and how far it is to walk. Folk currently know the whole map within
+ * the search depth; perception limits come later.
  */
-function firstStepToFood(ctx: FolkContext, startX: number, startY: number): number {
-  const { world, walkable, search } = ctx;
+function scanTargets(ctx: FolkContext, startX: number, startY: number): void {
+  const { world, walkable, search, senses, eco } = ctx;
   const { width, height, terrain } = world;
+  senses.targetTile.fill(-1);
+  senses.targetDist.fill(-1);
+  let missing = ctx.forage.length;
+
+  const check = (tile: number, dist: number): void => {
+    for (const f of ctx.forage) {
+      if (senses.targetTile[f.def.option]! >= 0) continue;
+      if (eco.stock[f.species]![tile]! >= f.def.minStock) {
+        senses.targetTile[f.def.option] = tile;
+        senses.targetDist[f.def.option] = dist;
+        missing--;
+      }
+    }
+  };
+
   search.current += 1;
   const stamp = search.current;
   const start = startY * width + startX;
@@ -85,15 +175,16 @@ function firstStepToFood(ctx: FolkContext, startX: number, startY: number): numb
   let tail = 0;
   search.queue[tail++] = start;
   search.stamp[start] = stamp;
-  search.firstStep[start] = -1;
+  search.parent[start] = -1;
+  check(start, 0);
   // BFS layers are tracked by queue position rather than a per-tile depth.
   let layerEnd = tail;
   let layer = 0;
-  while (head < tail) {
+  while (head < tail && missing > 0) {
     if (head === layerEnd) {
       layer += 1;
       layerEnd = tail;
-      if (layer > FOLK.searchDepth) return -1;
+      if (layer > FOLK.searchDepth) return;
     }
     const current = search.queue[head++]!;
     const cx = current % width;
@@ -105,36 +196,39 @@ function firstStepToFood(ctx: FolkContext, startX: number, startY: number): numb
       const next = ny * width + nx;
       if (search.stamp[next] === stamp || !walkable[terrain[next]!]) continue;
       search.stamp[next] = stamp;
-      search.firstStep[next] = current === start ? next : search.firstStep[current]!;
-      if (plantFoodAt(ctx, next) >= FOLK.minFoodTile) return search.firstStep[next]!;
+      search.parent[next] = current;
+      check(next, layer + 1);
       search.queue[tail++] = next;
     }
   }
-  return -1;
 }
 
-function moveTo(ctx: FolkContext, slot: number, tile: number, tick: number): void {
-  const { store, world } = ctx;
-  const fromX = store.x[slot]!;
-  const fromY = store.y[slot]!;
-  const x = tile % world.width;
-  const y = (tile - x) / world.width;
-  store.x[slot] = x;
-  store.y[slot] = y;
-  store.energy[slot] = Math.max(0, store.energy[slot]! - FOLK.moveEnergyCost);
-  store.action[slot] = ACTION.moving;
-  if (ctx.emitMoves) {
-    ctx.events.push({ tick, type: 'move', folk: store.id[slot]!, x, y, fromX, fromY });
-  }
+/** Tiles to walk from the scan start to `target`, in order (excluding the start). */
+function pathTo(ctx: FolkContext, target: number): Int32Array {
+  const steps: number[] = [];
+  for (let t = target; ctx.search.parent[t]! >= 0; t = ctx.search.parent[t]!) steps.push(t);
+  return Int32Array.from(steps.reverse());
+}
+
+function multiplier(store: FolkStore, slot: number): number {
+  return INJURY.durationMultiplier[store.injury[slot]!]!;
+}
+
+function begin(ctx: FolkContext, slot: number, tick: number, pending: number, ticks: number): void {
+  const { store } = ctx;
+  store.pending[slot] = pending;
+  store.busyUntil[slot] = tick + Math.max(1, Math.ceil(ticks * multiplier(store, slot)));
+  store.action[slot] = OPTION_LABEL[pending] ?? ACTION.idle;
+}
+
+function beginStepTo(ctx: FolkContext, slot: number, tick: number, tile: number): void {
+  ctx.store.pendingTile[slot] = tile;
+  begin(ctx, slot, tick, PENDING_MOVE, 1);
 }
 
 function wander(ctx: FolkContext, slot: number, tick: number): void {
   const { store, world, rng, walkable } = ctx;
-  if (rng.next() < FOLK.idleChance) {
-    store.action[slot] = ACTION.idle;
-    store.energy[slot] = Math.min(FOLK.maxStat, store.energy[slot]! + FOLK.idleEnergyGain);
-    return;
-  }
+  if (rng.next() < FOLK.idleChance) return begin(ctx, slot, tick, PENDING_IDLE, 1);
   const x = store.x[slot]!;
   const y = store.y[slot]!;
   const options: number[] = [];
@@ -145,94 +239,289 @@ function wander(ctx: FolkContext, slot: number, tick: number): void {
     const tile = ny * world.width + nx;
     if (walkable[world.terrain[tile]!]) options.push(tile);
   }
-  if (options.length === 0) {
-    store.action[slot] = ACTION.idle;
-    return;
-  }
-  moveTo(ctx, slot, options[Math.floor(rng.next() * options.length)]!, tick);
+  if (options.length === 0) return begin(ctx, slot, tick, PENDING_IDLE, 1);
+  beginStepTo(ctx, slot, tick, options[Math.floor(rng.next() * options.length)]!);
 }
 
-/** Eat plant food from the tile the Folk stands on, taking from each plant in proportion to its stock. */
-function eatHere(ctx: FolkContext, slot: number, tick: number): void {
-  const { store, world, eco } = ctx;
-  const tile = store.y[slot]! * world.width + store.x[slot]!;
-  const available = plantFoodAt(ctx, tile);
-  const room = FOLK.maxStat - store.satiety[slot]!;
-  const eaten = Math.min(FOLK.bite, available, room);
-  if (eaten <= 0) return;
-  for (const s of ctx.plantSpecies) {
-    const stock = eco.stock[s]!;
-    stock[tile] = stock[tile]! - (eaten * stock[tile]!) / available;
+/** Fill the shared senses object for one Folk. */
+function sense(ctx: FolkContext, slot: number): void {
+  const { store, senses } = ctx;
+  senses.x = store.x[slot]!;
+  senses.y = store.y[slot]!;
+  senses.satiety = store.satiety[slot]!;
+  senses.health = store.health[slot]!;
+  senses.energy = store.energy[slot]!;
+  senses.injury = store.injury[slot]!;
+  senses.foodSatiety = foodSatiety(ctx, slot);
+  senses.room = FOLK.carryCapacity - carried(ctx, slot);
+  senses.foraging = store.foraging[slot]!;
+  senses.hunting = store.hunting[slot]!;
+  senses.resting = store.action[slot] === ACTION.resting;
+  senses.durationMultiplier = multiplier(store, slot);
+  senses.paramBase = slot * MAX_PARAMS;
+}
+
+/** Ask the Folk's decider what to do and start doing it. */
+function decide(ctx: FolkContext, slot: number, tick: number): void {
+  const { store, senses, intent, world } = ctx;
+  scanTargets(ctx, store.x[slot]!, store.y[slot]!);
+  sense(ctx, slot);
+  const scores = store.scores.subarray(slot * OPTION_COUNT, (slot + 1) * OPTION_COUNT);
+  DECIDERS[store.decider[slot]!]!.decide(senses, intent, scores);
+  store.choice[slot] = intent.option;
+
+  switch (intent.option) {
+    case OPTION.eat:
+      return begin(ctx, slot, tick, OPTION.eat, 1);
+    case OPTION.rest:
+      return begin(ctx, slot, tick, OPTION.rest, FOLK.restTicks);
+    case OPTION.wander:
+      return wander(ctx, slot, tick);
   }
-  store.satiety[slot] = store.satiety[slot]! + eaten;
-  store.action[slot] = ACTION.eating;
+  // A foraging option: head for the target tile, then work it.
+  const here = store.y[slot]! * world.width + store.x[slot]!;
+  store.intent[slot] = intent.option;
+  store.intentTile[slot] = intent.tile;
+  store.paths[slot] = intent.tile === here ? null : pathTo(ctx, intent.tile);
+  store.pathPos[slot] = 0;
+  continueIntent(ctx, slot, tick);
+}
+
+function clearIntent(store: FolkStore, slot: number): void {
+  store.intent[slot] = PENDING_NONE;
+  store.intentTile[slot] = -1;
+  store.paths[slot] = null;
+}
+
+/** Keep going toward the current foraging intent: walk the next step, or start the work on arrival. */
+function continueIntent(ctx: FolkContext, slot: number, tick: number): void {
+  const { store, world, eco } = ctx;
+  const path = store.paths[slot];
+  const pos = store.pathPos[slot]!;
+  if (path && pos < path.length) {
+    store.pathPos[slot] = pos + 1;
+    return beginStepTo(ctx, slot, tick, path[pos]!);
+  }
+  const target = ctx.forage.find((f) => f.def.option === store.intent[slot]);
+  const here = store.y[slot]! * world.width + store.x[slot]!;
+  const room = FOLK.carryCapacity - carried(ctx, slot);
+  if (!target || eco.stock[target.species]![here]! < target.def.minStock || room < 1) {
+    // Someone got there first, or there is nowhere to put it: think again next tick.
+    clearIntent(store, slot);
+    return;
+  }
+  begin(ctx, slot, tick, target.def.option, target.def.ticks);
+}
+
+function addGood(ctx: FolkContext, slot: number, good: number, amount: number): void {
+  const at = slot * GOODS_LIST.length + good;
+  ctx.store.inventory[at] = ctx.store.inventory[at]! + amount;
+}
+
+/** Eat from the inventory, best food per unit first. */
+function eat(ctx: FolkContext, slot: number, tick: number): void {
+  const { store } = ctx;
+  let bite = FOLK.eatBite;
+  let units = 0;
+  const order = GOODS_LIST.filter((g) => g.edible).sort((a, b) => b.foodValue - a.foodValue);
+  for (const g of order) {
+    const at = slot * GOODS_LIST.length + g.id;
+    const room = (FOLK.maxStat - store.satiety[slot]!) / g.foodValue;
+    const taken = Math.min(store.inventory[at]!, bite, room);
+    if (taken <= 0) continue;
+    store.inventory[at] = store.inventory[at]! - taken;
+    store.satiety[slot] = store.satiety[slot]! + taken * g.foodValue;
+    bite -= taken;
+    units += taken;
+  }
+  if (units <= 0) return;
   ctx.events.push({
     tick,
     type: 'eat',
     folk: store.id[slot]!,
     x: store.x[slot]!,
     y: store.y[slot]!,
-    food: eaten,
+    food: units,
     satiety: store.satiety[slot]!,
   });
 }
 
-/** Rule-based baseline: hunger first, then rest, then wander. */
-function act(ctx: FolkContext, slot: number, tick: number): void {
-  const { store, world } = ctx;
-  const tile = store.y[slot]! * world.width + store.x[slot]!;
-
-  if (store.satiety[slot]! < FOLK.hungerThreshold) {
-    if (plantFoodAt(ctx, tile) >= FOLK.minFoodTile) return eatHere(ctx, slot, tick);
-    const step = firstStepToFood(ctx, store.x[slot]!, store.y[slot]!);
-    if (step >= 0) return moveTo(ctx, slot, step, tick);
-    return wander(ctx, slot, tick);
+function injure(ctx: FolkContext, slot: number, tick: number, def: ForageDef): void {
+  const { store, rng } = ctx;
+  const roll = rng.next();
+  const level = roll < def.seriousInjury ? 2 : roll < def.seriousInjury + def.minorInjury ? 1 : 0;
+  if (level === 0) return;
+  store.health[slot] = store.health[slot]! - INJURY.damage[level]!;
+  if (level > store.injury[slot]!) {
+    store.injury[slot] = level;
+    store.injuryTimer[slot] = INJURY.healTicks[level]!;
   }
-
-  const resting = store.action[slot] === ACTION.resting;
-  if (
-    store.energy[slot]! < FOLK.tiredThreshold ||
-    (resting && store.energy[slot]! < FOLK.restUntil)
-  ) {
-    store.action[slot] = ACTION.resting;
-    store.energy[slot] = Math.min(FOLK.maxStat, store.energy[slot]! + FOLK.restEnergyGain);
-    return;
-  }
-  wander(ctx, slot, tick);
+  ctx.events.push({
+    tick,
+    type: 'injure',
+    folk: store.id[slot]!,
+    x: store.x[slot]!,
+    y: store.y[slot]!,
+    severity: level === 2 ? 'serious' : 'minor',
+    action: def.key,
+  });
 }
 
-/** Advance every Folk one tick: needs, health, death and replacement, then one action. */
-export function stepFolk(ctx: FolkContext, tick: number): void {
-  const { store } = ctx;
-  for (let slot = 0; slot < store.count; slot++) {
-    store.age[slot] = store.age[slot]! + 1;
-    store.satiety[slot] = Math.max(0, store.satiety[slot]! - FOLK.satietyDecay);
-    if (store.satiety[slot]! <= 0) {
-      store.health[slot] = store.health[slot]! - FOLK.starvationDamage;
-    } else if (store.satiety[slot]! > FOLK.regenSatiety) {
-      store.health[slot] = Math.min(FOLK.maxStat, store.health[slot]! + FOLK.regen);
-    }
+/** Finish a foraging action: take from the tile stock into the inventory, then roll for injury. */
+function forageResult(ctx: FolkContext, slot: number, tick: number, option: number): void {
+  const { store, eco, rng, world } = ctx;
+  const target = ctx.forage.find((f) => f.def.option === option);
+  const def = forageDef(option);
+  if (!target || !def) return;
+  const tile = store.y[slot]! * world.width + store.x[slot]!;
+  const stock = eco.stock[target.species]!;
+  const room = FOLK.carryCapacity - carried(ctx, slot);
+  const skill = def.skill === 'foraging' ? store.foraging[slot]! : store.hunting[slot]!;
+  const x = store.x[slot]!;
+  const y = store.y[slot]!;
 
-    if (store.health[slot]! <= 0) {
+  if (def.kind === 'plant') {
+    const amount = Math.min(def.yield * (1 + SKILL_YIELD_BONUS * skill), stock[tile]!, room);
+    if (amount > 0) {
+      stock[tile] = stock[tile]! - amount;
+      addGood(ctx, slot, target.good, amount);
+    }
+    ctx.events.push({
+      tick,
+      type: 'gather',
+      folk: store.id[slot]!,
+      x,
+      y,
+      species: def.species,
+      amount,
+    });
+  } else {
+    const chance = Math.min(MAX_SUCCESS, def.baseSuccess + SKILL_SUCCESS_BONUS * skill);
+    const success = rng.next() < chance && stock[tile]! >= 1;
+    const meat = success ? Math.min(def.yield, room) : 0;
+    if (success) {
+      stock[tile] = stock[tile]! - 1;
+      addGood(ctx, slot, target.good, meat);
+    }
+    ctx.events.push({
+      tick,
+      type: 'hunt',
+      folk: store.id[slot]!,
+      x,
+      y,
+      species: def.species,
+      success,
+      meat,
+    });
+  }
+
+  store.energy[slot] = Math.max(0, store.energy[slot]! - def.energy);
+  const gained = SKILL_GAIN * (1 - skill);
+  if (def.skill === 'foraging') store.foraging[slot] = skill + gained;
+  else store.hunting[slot] = skill + gained;
+  injure(ctx, slot, tick, def);
+}
+
+/** Apply the outcome of whatever a Folk just finished doing. */
+function resolve(ctx: FolkContext, slot: number, tick: number): void {
+  const { store, world } = ctx;
+  const pending = store.pending[slot]!;
+  store.pending[slot] = PENDING_NONE;
+  switch (pending) {
+    case PENDING_MOVE: {
+      const tile = store.pendingTile[slot]!;
+      const fromX = store.x[slot]!;
+      const fromY = store.y[slot]!;
+      store.x[slot] = tile % world.width;
+      store.y[slot] = Math.floor(tile / world.width);
+      store.energy[slot] = Math.max(0, store.energy[slot]! - FOLK.moveEnergyCost);
+      if (ctx.emitMoves) {
+        ctx.events.push({
+          tick,
+          type: 'move',
+          folk: store.id[slot]!,
+          x: store.x[slot]!,
+          y: store.y[slot]!,
+          fromX,
+          fromY,
+        });
+      }
+      return;
+    }
+    case PENDING_IDLE:
+      store.energy[slot] = Math.min(FOLK.maxStat, store.energy[slot]! + FOLK.idleEnergyGain);
+      return;
+    case OPTION.rest:
+      store.energy[slot] = Math.min(FOLK.maxStat, store.energy[slot]! + FOLK.restEnergyGain);
+      return;
+    case OPTION.eat:
+      return eat(ctx, slot, tick);
+    default:
+      forageResult(ctx, slot, tick, pending);
+      clearIntent(store, slot);
+  }
+}
+
+/** Age, hunger, healing and starvation for one Folk; returns true if it died and was replaced. */
+function liveAndDie(ctx: FolkContext, slot: number, tick: number): boolean {
+  const { store } = ctx;
+  store.age[slot] = store.age[slot]! + 1;
+  store.satiety[slot] = Math.max(0, store.satiety[slot]! - FOLK.satietyDecay * ctx.hungerScale);
+  if (store.satiety[slot]! <= 0) {
+    store.health[slot] = store.health[slot]! - FOLK.starvationDamage;
+  } else if (store.satiety[slot]! > FOLK.regenSatiety) {
+    store.health[slot] = Math.min(FOLK.maxStat, store.health[slot]! + FOLK.regen);
+  }
+
+  if (store.injury[slot]! > 0) {
+    store.injuryTimer[slot] = store.injuryTimer[slot]! - 1;
+    if (store.injuryTimer[slot]! <= 0) {
+      const level = store.injury[slot]! - 1;
+      store.injury[slot] = level;
+      store.injuryTimer[slot] = INJURY.healTicks[level]!;
       ctx.events.push({
         tick,
-        type: 'die',
+        type: 'heal',
         folk: store.id[slot]!,
         x: store.x[slot]!,
         y: store.y[slot]!,
-        cause: 'starvation',
+        severity: level === 0 ? 'none' : 'minor',
       });
-      const born = initFolk(store, slot, ctx.world, ctx.rng, ctx.walkable);
-      ctx.events.push({
-        tick,
-        type: 'spawn',
-        folk: born.id,
-        x: born.x,
-        y: born.y,
-        reason: 'replacement',
-      });
-      continue;
     }
-    act(ctx, slot, tick);
+  }
+
+  if (store.health[slot]! > 0) return false;
+  ctx.events.push({
+    tick,
+    type: 'die',
+    folk: store.id[slot]!,
+    x: store.x[slot]!,
+    y: store.y[slot]!,
+    cause: store.satiety[slot]! <= 0 ? 'starvation' : 'injury',
+  });
+  // The replacement keeps the dead Folk's decider (so the mix stays constant) with fresh parameters.
+  const born = initFolk(store, slot, ctx.world, ctx.rng, ctx.walkable, store.decider[slot]!);
+  ctx.events.push({
+    tick,
+    type: 'spawn',
+    folk: born.id,
+    x: born.x,
+    y: born.y,
+    reason: 'replacement',
+    decider: born.decider,
+    params: born.params,
+  });
+  return true;
+}
+
+/** Advance every Folk one tick: needs, healing and death, finish any completed action, then start the next. */
+export function stepFolk(ctx: FolkContext, tick: number): void {
+  const { store } = ctx;
+  for (let slot = 0; slot < store.count; slot++) {
+    if (liveAndDie(ctx, slot, tick)) continue;
+    if (tick < store.busyUntil[slot]!) continue;
+    if (store.pending[slot] !== PENDING_NONE) resolve(ctx, slot, tick);
+    if (store.intent[slot] !== PENDING_NONE) continueIntent(ctx, slot, tick);
+    if (store.pending[slot] === PENDING_NONE) decide(ctx, slot, tick);
   }
 }

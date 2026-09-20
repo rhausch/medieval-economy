@@ -3,8 +3,11 @@ import { closeSync, mkdirSync, openSync, writeFileSync, writeSync } from 'node:f
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import {
+  DECIDERS,
   FOLK_ACTIONS,
+  FORAGE_ACTIONS,
   GOODS_LIST,
+  INJURY,
   SPECIES_LIST,
   speciesTotals,
   type Sim,
@@ -107,10 +110,15 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
     seed: sim.config.seed,
     world: sim.world.params,
     ecologyInterval: sim.config.ecologyInterval ?? 1,
+    plantRegrowthScale: sim.config.plantRegrowthScale ?? 1,
     folkCount: sim.folk.count,
     emitMoves: sim.config.emitMoves ?? false,
     snapshotInterval,
     species: SPECIES_LIST.map((s) => s.key),
+    deciders: DECIDERS.map((d) => ({ key: d.key, params: d.params })),
+    deciderMix: sim.config.deciders ?? DECIDERS.map((d) => d.key),
+    actions: FORAGE_ACTIONS,
+    injury: INJURY,
     goods: GOODS_LIST.map((g) => g.key),
     settlement: sim.folk.settlement,
     git: gitInfo(),
@@ -122,7 +130,7 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
   const events = new Buffered(join(dir, 'events.jsonl'));
   const entities = new Buffered(
     join(dir, 'entities.csv'),
-    'tick,id,x,y,satiety,health,energy,age,action,foraging,hunting' +
+    'tick,id,x,y,satiety,health,energy,age,action,decider,injury,foraging,hunting' +
       GOODS_LIST.map((g) => `,inv_${g.key}`).join(''),
   );
   const resources = new Buffered(
@@ -136,7 +144,7 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
     for (let s = 0; s < f.count; s++) {
       const inv = GOODS_LIST.map((_, g) => f.inventory[s * perGood + g]!.toFixed(2)).join(',');
       entities.write(
-        `${tick},${f.id[s]},${f.x[s]},${f.y[s]},${f.satiety[s]!.toFixed(2)},${f.health[s]!.toFixed(2)},${f.energy[s]!.toFixed(2)},${f.age[s]},${FOLK_ACTIONS[f.action[s]!]},${f.foraging[s]!.toFixed(3)},${f.hunting[s]!.toFixed(3)},${inv}\n`,
+        `${tick},${f.id[s]},${f.x[s]},${f.y[s]},${f.satiety[s]!.toFixed(2)},${f.health[s]!.toFixed(2)},${f.energy[s]!.toFixed(2)},${f.age[s]},${FOLK_ACTIONS[f.action[s]!]},${DECIDERS[f.decider[s]!]!.key},${f.injury[s]},${f.foraging[s]!.toFixed(3)},${f.hunting[s]!.toFixed(3)},${inv}\n`,
       );
     }
   };

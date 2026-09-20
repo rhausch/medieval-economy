@@ -12,7 +12,6 @@ const CLICK_SLOP_PX = 4;
 /** Folk are drawn at least this many screen pixels across, and at least FOLK_MIN_TILES tiles. */
 const FOLK_SCREEN_PX = 9;
 const FOLK_MIN_TILES = 0.6;
-const FOLK_COLOR = 0xffd23f;
 /** How close (in screen pixels) a click must be to a Folk to select it. */
 const FOLK_PICK_PX = 9;
 
@@ -307,10 +306,10 @@ export class WorldView {
       if (!sprite) {
         sprite = new Sprite(this.folkTex!);
         sprite.anchor.set(0.5);
-        sprite.tint = FOLK_COLOR;
         this.folkPool.push(sprite);
         this.folkLayer.addChild(sprite);
       }
+      sprite.tint = f.color;
       sprite.width = sprite.height = size;
       sprite.position.set(f.x + 0.5, f.y + 0.5);
       sprite.visible = true;

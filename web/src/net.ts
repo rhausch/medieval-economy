@@ -6,6 +6,7 @@ import type {
 } from '../../packages/server/src/protocol';
 
 export type {
+  DeciderInfo,
   FolkDetailMessage,
   FolkInfo,
   FolkMessage,

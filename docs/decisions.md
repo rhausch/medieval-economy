@@ -103,3 +103,22 @@ The user asked to slow plant regrowth (a stand-in for seasons) rather than add F
 - Slowing plants and animal appetite together keeps the ecology stable, but Folk are never hungry even at 0.1% regrowth: 20 Folk eat far less than the standing stock of a 65,000-tile world, spread over roughly 80x100 tiles.
 - Making plant food low-calorie (satiety per unit) does create pressure, but the range is narrow and seed-dependent: with regrowth at 5% and nutrition 0.025, seeds 1 and 2 saw under 1% hungry Folk-ticks and no deaths, while seed 3 saw 28% and 64 deaths, because settlement placement changes the local food supply.
   Decision: merge milestone 4 with the stable ecology unchanged, and build the scarcity stand-in as one tunable setting in milestone 5, tuned across several seeds, once Folk gather with real effort and competition costs. Seasons will replace it.
+
+## 2026-09-20: Actions, injury and deciders with parameter arrays (milestone 5)
+
+- Carrying only, no storage; food enters the inventory by foraging and Folk eat only from it. A weight penalty on movement comes later.
+- Four foraging actions with the agreed placeholder numbers. Actions take several ticks and decisions happen when one finishes.
+- Injury slows walking and every action (minor 2x, serious 10x) and heals a level at a time (300 and 400 ticks, chosen by me, to tune).
+- Every decider owns a parameter array with min and max per parameter; each Folk gets random values, recorded in its spawn event, so a genetic algorithm can be added without touching the deciders. Rules and utility deciders run side by side in one world, colored on the map, and a replacement keeps the dead Folk's decider with fresh parameters.
+- Skills grow slowly with use (a fixed rate for now; a per-Folk talent trait was dropped in favour of parameter arrays).
+- Decision timing and the benchmark harness stay in milestone 6.
+
+## 2026-09-20: Plant scarcity cannot be produced by slowing regrowth with 20 Folk
+
+Two settings exist and default to 1: `plantRegrowthScale` (plant regrowth and animal appetite together, so the balance holds) and `hungerScale` (how fast Folk get hungry). Measured on the milestone 5 build, seeds 1-3:
+
+- Regrowth scaled to 0.3-100% for 6000 ticks: no hunger and no deaths at any setting; results barely differ from full regrowth.
+- Regrowth at 0.3% for 60000 ticks: still no deaths and no hunger (plants fell from about 1.2M to 0.6M units). The standing stock is large next to what 20 Folk eat.
+- Hunger 2x to 6x: light pressure at most (0-4% of Folk-ticks hungry, one death in 18 runs), because gathering yields about 0.75 food per tick against a need of 0.12 x scale per tick.
+  Real scarcity therefore needs more Folk, a smaller or poorer world, much higher hunger, or seasons. The knobs are available in the panel, CLI and server (`REGROWTH` environment variable) so it can be explored by playing.
+  Observed decider behaviour: rules Folk dig and are injured 1-5% of the time; utility Folk mix gathering with snaring hares, are rarely injured, and almost never chase deer.

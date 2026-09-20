@@ -16,14 +16,41 @@ Generic `Entity` (id, position) with `Folk` as the first kind. Animals and plant
 
 **Stats (implemented):** `satiety` (0-100, decays 0.12 per tick; at 0, health drops), `health` (0-100; regenerates slowly while well fed), `energy` (0-100; spent by moving, restored by resting), `age`, `position`, `skills` (`foraging`, `hunting`; present but not yet used), `currentAction` (idle, moving, eating, resting).
 
-**Inventory:** a quantity per good, with a carry limit by weight. Goods are a data table (v1: plant food, meat). The inventory is shown in the inspector but stays empty until gathering exists (milestone 5); for now eating takes plant stock directly from the tile.
+**Inventory:** a quantity per good, with a carry limit of 20 weight units (carrying only for now; a weight penalty on movement comes later). Goods are a data table (plant food, meat). Food enters the inventory by foraging and leaves it by eating; a Folk never eats straight from the ground.
 
-**Population:** 20 Folk (configurable), spawned around a single **settlement**: the best of several random walkable tiles within 4 tiles of water, scored by the plant food nearby. A Folk that dies (starvation) is replaced at the settlement with a new one (new id, fresh stats), so the population stays constant; both events are logged.
+**Population:** 20 Folk (configurable) around one **settlement**: the best of several random walkable tiles within 4 tiles of water, scored by nearby plant food. A Folk that dies is replaced at the settlement by a new one with fresh stats and fresh random decider parameters but the same decider, so the population and the decider mix stay constant.
 
-**Behaviour (baseline, rule-based):** hungry (satiety below 45): eat plant food on the current tile if there is at least 8 units, otherwise walk toward the nearest reachable tile with food (breadth-first search over walkable tiles, so it routes around water and mountains), otherwise wander. Not hungry: rest when energy is low (until 60), otherwise wander (random step, sometimes standing still). One tile per tick.
-Decision making is swappable behind the interface described under Behaviour; this baseline is the first framework.
+## Actions (implemented)
 
-**Perception (v1):** full map knowledge within the food search depth (60 tiles), stand-in for the perception and memory to come.
+An action is data (`data/actions.ts`): species worked, ticks, energy, minimum stock worth working, yield, base success, and the chance of a minor or serious injury. A Folk walks to the nearest tile that qualifies, works it for the action's duration (locked in, so decisions happen only when an action finishes), then the outcome resolves. Plants always yield and the amount comes out of the tile's stock. Animals succeed with a chance that rises with skill; a kill removes one head and yields meat. Skills (foraging, hunting) grow with use.
+
+| Action | Species        | Ticks | Energy | Yield                | Injury chance         |
+| ------ | -------------- | ----- | ------ | -------------------- | --------------------- |
+| Gather | berries        | 4     | 0.5    | 3 plant food         | none                  |
+| Dig    | roots and nuts | 12    | 3      | 14 plant food        | 3% minor              |
+| Snare  | hare           | 5     | 0.5    | 3 meat, 50% success  | none                  |
+| Chase  | deer           | 20    | 6      | 20 meat, 50% success | 15% minor, 5% serious |
+
+Eating takes one tick and eats up to 10 units from the inventory, best food per unit first. Resting takes 3 ticks and restores 3 energy.
+
+**Injury:** minor injuries make walking and every action take 2x as long, serious ones 10x. An injury costs health when it happens (5 minor, 25 serious) and heals one level after 300 ticks (minor to none) or 400 ticks (serious to minor). Healing values are placeholders. Injury can kill.
+
+## Behaviour (decision making)
+
+**Interface:** `decide(senses, out, scores)`. Senses are a read-only snapshot: stats, injury, what is carried and how much room is left, skills, the duration multiplier, the Folk's parameter array, and for each foraging option the nearest qualifying tile and the walking distance (one breadth-first search per decision, so deciders never search themselves). The decider returns an option (eat, gather, dig, snare, chase, rest, wander) and may write a score per option for the inspector. Folk keep a small blackboard-like state: current intent and the path to it.
+
+**Deciders (both implemented, both running in the same world):**
+
+- **Rules** (yellow): eat when hungry and carrying food, rest when tired until rested, restock food when the reserve is low (bold and healthy Folk try the risky high-yield work first), otherwise wander.
+- **Utility** (teal): scores each available option on hunger and how far the carried reserve is below the wanted one, expected satiety per tick including the walk, effort, injury risk (higher when hurt) and distance, each scaled by that Folk's own weights, and takes the highest.
+
+**Parameter arrays (genomes):** each decider declares a list of parameters with a min and max. Every Folk gets a random value for each, drawn uniformly at spawn; replacements draw fresh ones. Rules has 5 (eat threshold, rest thresholds, food target, risk tolerance), utility has 8 (weights for hunger, yield, effort, risk, distance, rest, wander, and the reserve wanted). The arrays are recorded in each spawn event, so a future genetic algorithm can select, breed and mutate them without changing the deciders. Folk are drawn in the color of their decider, with a legend and per-decider counts, and the inspector shows the array and the last decision scores.
+
+**Later frameworks:** GOAP or HTN when multi-step chains (crafting, trade, storage) arrive, with utility choosing goals and a planner producing steps; a behavior tree, reinforcement learning or an LLM for a few notable Folk remain possible behind the same interface. A genetic algorithm would evolve the parameter arrays.
+
+**Not yet:** per-decision timing and the benchmark harness (milestone 6), perception limits and memory, a shared blackboard, planning (GOAP or HTN).
+
+**Perception (v1):** full map knowledge within the search depth (60 tiles), a stand-in for the perception and memory to come.
 
 ## World
 
@@ -47,23 +74,10 @@ Parameters: `seed`, `width`, `height`, `noiseScale` (feature size in tiles), `oc
 
 **Rendering:** the terrain is one nearest-filtered texture (1 pixel per tile) shaded by elevation, so large boards are cheap; pan and zoom, a grid that appears when zoomed in, and a tile selection highlight. A per-species heat overlay can be toggled, and when zoomed in each tile shows small sprites (squares for plants, circles for animals, one fixed slot per species) whose size shows how full the tile is, so plentiful versus bare reads at a glance. The server streams one byte per tile per species at 4 Hz to subscribed clients (to be filtered to the viewport at larger scales).
 
-## Actions (v1)
-
-An action is data: species (resource), time, energy cost, success chance, yield, injury risk, skill gain. Two tiers each for forage and hunt. Numbers below are placeholders to tune by playing.
-
-| Action                                      | Field           | Effort | Risk             | Reward |
-| ------------------------------------------- | --------------- | ------ | ---------------- | ------ |
-| Gather (surface plants, berries and greens) | berries, greens | low    | ~none            | low    |
-| Dig/Deep-forage (roots, nuts, mushrooms)    | plantsRich      | high   | injury, bad-food | high   |
-| Snare (small game)                          | gameSmall       | low    | ~none            | low    |
-| Chase (large game)                          | gameLarge       | high   | serious injury   | high   |
-
-Success and yield scale with skill and local density, so sparse tiles are harder and overharvesting is self-limiting. High-effort actions need a minimum local density to be worth attempting.
-
 ## Inspection UI
 
-- Click a tile: coordinates, terrain, fertility, all four resource stocks and capacities, occupants.
-- Click a Folk: all stats, inventory, current action, recent events.
+- Click a tile: coordinates, terrain, elevation, moisture, and the stock and capacity of every species that can live there.
+- Click a Folk: decider, needs, injury and when it heals, position and action, skills, inventory, the last decision and (for utility Folk) the score of every option, the parameter array with ranges, and recent events.
   Requires read-only queryable sim state by id and coordinate.
 
 ## Logging (for Python analysis)
@@ -71,31 +85,11 @@ Success and yield scale with skill and local density, so sparse tiles are harder
 Implemented in `packages/runlog`, used by both the server and the headless CLI. Each run writes `experiments/output/<run-id>/` (git-ignored):
 
 - `manifest.json`: run id, start and end time, ticks, seed, full world parameters, ecology interval, Folk count, snapshot interval, species and goods lists, settlement, git commit and dirty flag, Node version, and extra fields such as the decider. Finalized (end time, tick count) when the run closes, including on server shutdown.
-- `events.jsonl`: append-only, one JSON object per line with `tick`, `type` and the fields of that type. Types now: `spawn` (initial or replacement), `eat`, `die`, and optionally `move` (one per step; off by default because of volume). Gathering, hunting, injury and user actions arrive with their features.
-- `entities.csv`: a snapshot of every Folk every N ticks (default 10) plus a final one: stats, action, skills and inventory columns.
+- `events.jsonl`: append-only, one JSON object per line with `tick`, `type` and the fields of that type. Types now: `spawn` (with decider and parameter array), `eat`, `gather`, `hunt` (with success), `injure`, `heal`, `die` (starvation or injury), and optionally `move` (one per step; off by default because of volume). User actions arrive with their feature.
+- `entities.csv`: a snapshot of every Folk every N ticks (default 10) plus a final one: stats, action, decider, injury level, skills and inventory columns.
 - `resources.csv`: total stock per species at the same snapshot ticks. Full per-tile snapshots are not written yet.
   `scripts/summarize_run.py` summarizes a run with the standard library; the files also load directly into pandas. Determinism means a replay from the manifest should reproduce the logs; an automated replay check is still to do.
 
 ## Extension points (planned, not built)
 
 Perception and memory; births; more goods and recipes; specialisation via skills; seasons; groups and property; trade; governance.
-
-## Behaviour (decision making)
-
-**Swappable interface:** `decide(senses, actions, blackboard) -> Intent`. Frameworks are interchangeable and benchmarked against each other.
-
-- **Senses:** read-only snapshot. Internal (stats, inventory, skills, current action) and external (via `perceive()`).
-- **Actions:** currently available actions from the data-driven definitions, each with preconditions, cost (time, energy, risk) and expected result. Sim and deciders share one source of truth.
-- **Blackboard (per Folk, private in v1):** knowledge (known tile estimates with timestamps), goals with priorities, plan/step queue and scratch space.
-- **Cadence:** a Folk decides when its current action completes or is interrupted, not every tick.
-
-**Performance tracking:** every `decide()` call is timed and logged (ms per decision, decisions per tick, p50/p95/max per framework, planner counters such as nodes expanded and cache hits, per-tick decision budget). A headless benchmark runs N Folk for M ticks on a fixed seed and reports ticks/sec per framework as N grows.
-
-**Frameworks:** rule/priority list (baseline, performance floor) and utility AI (primary). GOAP or HTN when multi-step chains (crafting, trade, storage) arrive, with utility choosing goals and the planner producing steps. Behavior tree, RL and LLM-driven remain possible behind the interface.
-
-**Trait and weight variation:** per Folk, drawn from a seeded distribution at spawn.
-
-- Traits: `riskAversion`, `laziness`, `talent` (skill growth multiplier), `hungerThreshold`.
-- Utility weights: per-Folk multiplier on each consideration (need urgency, expected yield, effort, risk, distance).
-- `variationStrength` scales the spread; 0 gives identical Folk for clean baseline runs. Recorded in the manifest.
-- Traits and weights are logged at spawn and shown in the Folk inspector. Replacement spawns draw fresh traits.
