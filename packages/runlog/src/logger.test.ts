@@ -207,4 +207,53 @@ describe('startRun', () => {
     expect(timing.decide.rules.count + timing.decide.utility.count).toBe(timing.scan.count);
     expect(timing.step.p95Ms).toBeGreaterThanOrEqual(timing.step.p50Ms);
   });
+
+  it('logs solo Folk that are not replaced: one lifetime each, with where they started, and no rows once dead', () => {
+    const sim = createSim({
+      seed: 5,
+      folkCount: 6,
+      replaceDead: false,
+      ecologyInterval: 1_000_000,
+      world: { width: 48, height: 40, noiseScale: 16 },
+    });
+    sim.ecology.stock.forEach((s) => s.fill(0));
+    sim.folk.memSpecies.fill(-1);
+    sim.folk.memTile.fill(-1);
+    const out = outputDir();
+    const log = startRun(sim, { outputDir: out, snapshotInterval: 100 });
+    log.record(sim);
+    for (let i = 0; i < 3500; i++) {
+      sim.step();
+      log.record(sim);
+    }
+    log.close(sim);
+    expect(sim.aliveCount()).toBe(0);
+
+    const manifest = JSON.parse(readFileSync(join(log.dir, 'manifest.json'), 'utf8'));
+    expect(manifest.folkAtStart).toBe(6);
+
+    const rows = (name: string): string[][] =>
+      readFileSync(join(log.dir, name), 'utf8')
+        .trim()
+        .split('\n')
+        .map((l) => l.split(','));
+    const lifetimes = rows('lifetimes.csv');
+    const header = lifetimes[0]!;
+    const col = (name: string): number => header.indexOf(name);
+    // Everyone died, and each is written exactly once (not again at the end of the run).
+    expect(lifetimes.length - 1).toBe(6);
+    expect(new Set(lifetimes.slice(1).map((r) => r[0])).size).toBe(6);
+    for (const r of lifetimes.slice(1)) {
+      expect(r[col('cause')]).toBe('starvation');
+      expect(Number(r[col('died')])).toBeGreaterThan(0);
+      expect(r[col('spawnTerrain')]).not.toBe('');
+      expect(Number(r[col('spawnX')])).toBeGreaterThanOrEqual(0);
+    }
+
+    // Snapshots stop listing a Folk once it has died.
+    const entities = rows('entities.csv').slice(1);
+    const lastDeath = Math.max(...lifetimes.slice(1).map((r) => Number(r[col('died')])));
+    expect(entities.filter((r) => Number(r[0]) > lastDeath)).toHaveLength(0);
+    expect(entities.filter((r) => Number(r[0]) === 0)).toHaveLength(6);
+  });
 });

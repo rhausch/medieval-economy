@@ -10,8 +10,9 @@ export type SimEvent =
       decider: string;
       /** The Folk's decider parameters, in the decider's parameter order. */
       params: number[];
-      /** Starting calorie reserve. */
+      /** Starting calorie reserve, and the terrain it appeared on. */
       reserve: number;
+      terrain: string;
     }
   | {
       tick: number;

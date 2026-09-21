@@ -124,8 +124,8 @@ function decide(decider: DeciderDef, s: Senses): number {
 }
 
 describe('Folk setup', () => {
-  it('starts with 20 Folk on walkable land near the settlement', () => {
-    const sim = createSim(config);
+  it('starts with 20 Folk on walkable land near the settlement, when they spawn together', () => {
+    const sim = createSim({ ...config, spawnRandom: false });
     const { folk, world } = sim;
     const walkable = walkableTable();
     expect(folk.count).toBe(20);
@@ -363,6 +363,8 @@ describe('foraging', () => {
     const sim = bare(['utility']);
     const hare = sim.ecology.stock[speciesIndex(sim, 'hare')]!;
     const tile = tileOf(sim);
+    hare[tile] = 6;
+    sim.learnArea(0, 3); // it looks around and sees the hare
     sim.folk.reserve[0] = 0.3 * CAPACITY;
     let checked = 0;
     for (let i = 0; i < 400 && checked < 3; i++) {

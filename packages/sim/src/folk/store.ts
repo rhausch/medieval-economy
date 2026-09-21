@@ -10,6 +10,10 @@ import type { World } from '../world';
 /** Folk stored as typed-array columns, one slot per Folk. Slot index is not the Folk id. */
 export interface FolkStore {
   readonly count: number;
+  /** 1 while the Folk is alive; a dead Folk that is not replaced stays in its slot with 0. */
+  readonly alive: Uint8Array;
+  /** Every walkable tile of the largest connected land: where a lone Folk may appear. */
+  readonly spawnTiles: Int32Array;
   readonly id: Uint32Array;
   readonly x: Int32Array;
   readonly y: Int32Array;
@@ -96,6 +100,44 @@ function plantFoodAt(eco: Ecology, i: number): number {
   return sum;
 }
 
+/** The tiles of the largest connected stretch of walkable land (4-connected). */
+export function mainland(world: World, walkable: Uint8Array): Int32Array {
+  const n = world.terrain.length;
+  const label = new Int32Array(n).fill(-1);
+  const queue = new Int32Array(n);
+  let best = { size: 0, id: -1 };
+  let id = 0;
+  for (let start = 0; start < n; start++) {
+    if (label[start] !== -1 || !walkable[world.terrain[start]!]) continue;
+    let head = 0;
+    let tail = 0;
+    queue[tail++] = start;
+    label[start] = id;
+    while (head < tail) {
+      const tile = queue[head++]!;
+      const x = tile % world.width;
+      const y = (tile - x) / world.width;
+      const neighbours = [
+        x > 0 ? tile - 1 : -1,
+        x < world.width - 1 ? tile + 1 : -1,
+        y > 0 ? tile - world.width : -1,
+        y < world.height - 1 ? tile + world.width : -1,
+      ];
+      for (const t of neighbours) {
+        if (t < 0 || label[t] !== -1 || !walkable[world.terrain[t]!]) continue;
+        label[t] = id;
+        queue[tail++] = t;
+      }
+    }
+    if (tail > best.size) best = { size: tail, id };
+    id++;
+  }
+  const out = new Int32Array(best.size);
+  let k = 0;
+  for (let i = 0; i < n && k < best.size; i++) if (label[i] === best.id) out[k++] = i;
+  return out;
+}
+
 /** Best of several random walkable tiles near water, scored by the plant food around them. */
 function findSettlement(
   world: World,
@@ -172,11 +214,28 @@ export function initFolk(
   walkable: Uint8Array,
   deciderIndex: number,
   settings: Settings,
-): { id: number; x: number; y: number; decider: string; params: number[]; reserve: number } {
-  const at = spawnTile(world, walkable, store.settlement, rng, settings.folk.spawnRadius);
+): {
+  id: number;
+  x: number;
+  y: number;
+  decider: string;
+  params: number[];
+  reserve: number;
+  terrain: string;
+} {
+  // Alone at a random place on the main landmass, or together around the settlement.
+  const tile =
+    settings.folk.spawnRandom === 1 && store.spawnTiles.length > 0
+      ? store.spawnTiles[Math.floor(rng.next() * store.spawnTiles.length)]!
+      : -1;
+  const at =
+    tile >= 0
+      ? { x: tile % world.width, y: Math.floor(tile / world.width) }
+      : spawnTile(world, walkable, store.settlement, rng, settings.folk.spawnRadius);
   const decider = settings.deciders[deciderIndex]!;
   const { min, max } = settings.body.startReserveFraction;
   store.nextId += 1;
+  store.alive[slot] = 1;
   store.id[slot] = store.nextId;
   store.x[slot] = at.x;
   store.y[slot] = at.y;
@@ -222,6 +281,7 @@ export function initFolk(
     decider: decider.key,
     params,
     reserve: store.reserve[slot]!,
+    terrain: TERRAIN_LIST[world.terrain[at.y * world.width + at.x]!]!.key,
   };
 }
 
@@ -232,8 +292,11 @@ export function createFolkStore(
   count: number,
   settings: Settings,
 ): FolkStore {
+  const walkable = walkableTable();
   return {
     count,
+    alive: new Uint8Array(count),
+    spawnTiles: settings.folk.spawnRandom === 1 ? mainland(world, walkable) : new Int32Array(0),
     id: new Uint32Array(count),
     x: new Int32Array(count),
     y: new Int32Array(count),

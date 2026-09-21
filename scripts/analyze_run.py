@@ -14,6 +14,7 @@ What it answers, for tuning the world and the behaviours:
   time_by_action      how each decider's Folk spend their time
   calorie_ledger      calories in and out: eaten, baseline, healing and each activity
   reserve             calorie reserves over time
+  survival            how long Folk live: Kaplan-Meier curves per decider, causes of death, survival by spawn terrain
   patches             how many patch tiles each species has and how many have been emptied
   knowledge           what Folk remember and how much of the map they have explored, over time
   movement            where Folk walk, how fast (ticks per step) and what it costs
@@ -149,6 +150,53 @@ def knowledge(run: Run) -> pd.DataFrame:
     """Places remembered and share of the map explored, averaged over each decider's Folk, over time."""
     df = run.csv("entities.csv")
     return df.groupby(["tick", "decider"])[["places", "explored"]].mean().reset_index()
+
+
+def kaplan_meier(durations: pd.Series, died: pd.Series) -> pd.DataFrame:
+    """Kaplan-Meier survival estimate: the share of Folk still alive at each time, allowing for Folk still
+    alive when the run ended (they are censored: known to have lived at least that long)."""
+    df = pd.DataFrame({"t": durations.to_numpy(), "died": died.to_numpy()}).sort_values("t")
+    at_risk = len(df)
+    survival = 1.0
+    rows = [(0, 1.0)]
+    for t, group in df.groupby("t"):
+        deaths = int(group["died"].sum())
+        if deaths:
+            survival *= 1 - deaths / at_risk
+            rows.append((t, survival))
+        at_risk -= len(group)
+    return pd.DataFrame(rows, columns=["tick", "survival"])
+
+
+def survival(run: Run) -> pd.DataFrame:
+    """Per decider: how many Folk, how many died, how many lived to the end, median survival time and the
+    share still alive at the end of the run. A Folk's lifetime is its age at death, or at the end if it lived."""
+    df = lifetimes(run)
+    df["died_flag"] = df["died"].notna()
+    out = []
+    for decider, grp in df.groupby("decider"):
+        curve = kaplan_meier(grp["lived"], grp["died_flag"])
+        below = curve[curve["survival"] <= 0.5]
+        out.append({
+            "decider": decider, "folk": len(grp), "died": int(grp["died_flag"].sum()),
+            "survived": int((~grp["died_flag"]).sum()),
+            "alive_at_end": curve["survival"].iloc[-1],
+            "median_survival": below["tick"].iloc[0] if len(below) else float("inf"),
+        })
+    return pd.DataFrame(out).set_index("decider")
+
+
+def death_causes(run: Run) -> pd.DataFrame:
+    """How many Folk of each decider died of each cause."""
+    df = lifetimes(run)
+    return df[df["died"].notna()].groupby(["decider", "cause"]).size().unstack(fill_value=0)
+
+
+def survival_by_terrain(run: Run) -> pd.DataFrame:
+    """Share of Folk that died, by the terrain they appeared on (needs random spawning to be meaningful)."""
+    df = lifetimes(run)
+    df["died_flag"] = df["died"].notna()
+    return df.groupby("spawnTerrain")["died_flag"].agg(folk="size", died="sum", died_share="mean")
 
 
 def reserve_over_time(run: Run) -> pd.DataFrame:
@@ -334,6 +382,22 @@ def plot_knowledge(run: Run) -> plt.Figure:
     return fig
 
 
+def plot_survival(run: Run) -> plt.Figure:
+    """Kaplan-Meier survival curves per decider."""
+    df = lifetimes(run)
+    df["died_flag"] = df["died"].notna()
+    fig, ax = plt.subplots(figsize=(8, 3.6))
+    for decider, grp in df.groupby("decider"):
+        curve = kaplan_meier(grp["lived"], grp["died_flag"])
+        end = max(grp["lived"].max(), curve["tick"].max())
+        ax.step(list(curve["tick"]) + [end], list(curve["survival"]) + [curve["survival"].iloc[-1]],
+                where="post", label=f"{decider} (n={len(grp)})", color=DECIDER_COLORS.get(decider))
+    ax.set(title="Share of Folk still alive", xlabel="ticks lived", ylim=(0, 1.02))
+    ax.legend()
+    fig.tight_layout()
+    return fig
+
+
 def plot_reserve(run: Run) -> plt.Figure:
     """Mean, minimum and maximum calorie reserve over time, per decider."""
     df = reserve_over_time(run)
@@ -388,6 +452,7 @@ PLOTS = {
     "movement": plot_movement,
     "patches": plot_patches,
     "knowledge": plot_knowledge,
+    "survival": plot_survival,
     "food_sources": plot_food_sources,
     "lifetimes": plot_lifetimes,
 }
@@ -412,6 +477,14 @@ def report(run: Run, out: Path | None = None) -> Path:
     print(src.groupby(["decider", "terrain"])["kcal"].sum().unstack(0))
     print("\n== patches: tiles and share emptied, last snapshot ==")
     print(_final(patches(run)).set_index("species")[["habitable", "depleted", "share_emptied"]])
+    print("\n== survival (Kaplan-Meier; median in ticks lived) ==")
+    print(survival(run))
+    causes = death_causes(run)
+    if len(causes):
+        print("\n== deaths by cause ==")
+        print(causes)
+    print("\n== share that died, by spawn terrain ==")
+    print(survival_by_terrain(run))
     print("\n== walking by terrain ==")
     print(movement(run)[["steps", "share_of_steps", "ticks_per_step", "kcal_per_step"]])
     print("\n== food fill by terrain, last snapshot ==")
