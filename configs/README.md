@@ -22,3 +22,4 @@ CONFIG=configs/hard-times.json npm run dev
 - Every run records the full resolved settings and a fingerprint of them in `manifest.json`, so any run can be
   reproduced by writing its `settings` back to a file.
 - Units: a tick is 6 minutes, a tile is 360 m, mass is kg, energy is kcal.
+- Perception is configured in `perception` (terrain range, memory slots, home ground) and by each species' `detectRange` (for example `{ "species": { "deer": { "detectRange": 5 } } }` lets Folk see deer from five tiles away).

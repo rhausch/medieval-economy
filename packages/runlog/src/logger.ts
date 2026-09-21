@@ -13,6 +13,7 @@ import {
   carriedTotals,
   consumptionRows,
   folkCounters,
+  knowledgeOf,
   ledgerRows,
   settingsToFile,
   sourceRows,
@@ -157,7 +158,7 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
   const events = new Buffered(join(dir, 'events.jsonl'));
   const entities = new Buffered(
     join(dir, 'entities.csv'),
-    'tick,id,x,y,reserve,age,action,decider,injury,foraging,hunting' +
+    'tick,id,x,y,reserve,age,action,decider,injury,foraging,hunting,places,explored' +
       GOODS_LIST.map((g) => `,inv_${g.key}`).join(''),
   );
   const resources = new Buffered(
@@ -197,8 +198,9 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
     const perGood = GOODS_LIST.length;
     for (let s = 0; s < f.count; s++) {
       const inv = GOODS_LIST.map((_, g) => f.inventory[s * perGood + g]!.toFixed(3)).join(',');
+      const knowledge = knowledgeOf(f, sim.world, sim.settings, s, tick);
       entities.write(
-        `${tick},${f.id[s]},${f.x[s]},${f.y[s]},${f.reserve[s]!.toFixed(1)},${f.age[s]},${FOLK_ACTIONS[f.action[s]!]},${DECIDERS[f.decider[s]!]!.key},${f.injury[s]},${f.foraging[s]!.toFixed(3)},${f.hunting[s]!.toFixed(3)},${inv}\n`,
+        `${tick},${f.id[s]},${f.x[s]},${f.y[s]},${f.reserve[s]!.toFixed(1)},${f.age[s]},${FOLK_ACTIONS[f.action[s]!]},${DECIDERS[f.decider[s]!]!.key},${f.injury[s]},${f.foraging[s]!.toFixed(3)},${f.hunting[s]!.toFixed(3)},${knowledge.places},${knowledge.explored.toFixed(3)},${inv}\n`,
       );
     }
   };

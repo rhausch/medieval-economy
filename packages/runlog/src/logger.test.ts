@@ -65,7 +65,15 @@ describe('startRun', () => {
     // Snapshots at ticks 0, 10, ..., 90 plus a final one at 95, for 4 Folk each.
     expect(entityRows).toHaveLength(1 + 11 * 4);
     for (const row of entityRows.slice(1)) expect(row.split(',')).toHaveLength(header.length);
-    for (const column of ['reserve', 'decider', 'injury', 'inv_berries', 'inv_meat']) {
+    for (const column of [
+      'reserve',
+      'decider',
+      'injury',
+      'places',
+      'explored',
+      'inv_berries',
+      'inv_meat',
+    ]) {
       expect(header).toContain(column);
     }
     expect(header).not.toContain('satiety');
@@ -187,7 +195,9 @@ describe('startRun', () => {
     expect(lifetimes[0]).toContain('kcalSpent');
     expect(lifetimes[0]).toContain('goals');
     expect(lifetimes[0]).toContain('interrupts');
-    expect(lifetimes[0]).toContain('p7');
+    expect(lifetimes[0]).toContain('p11');
+    expect(lifetimes[0]).toContain('discoveries');
+    expect(lifetimes[0]).toContain('explores');
     expect(lifetimes.length - 1).toBe(4);
     for (const row of lifetimes.slice(1)) expect(row).toHaveLength(lifetimes[0]!.length);
 

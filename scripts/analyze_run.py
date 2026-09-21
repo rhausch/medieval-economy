@@ -15,6 +15,7 @@ What it answers, for tuning the world and the behaviours:
   calorie_ledger      calories in and out: eaten, baseline, healing and each activity
   reserve             calorie reserves over time
   patches             how many patch tiles each species has and how many have been emptied
+  knowledge           what Folk remember and how much of the map they have explored, over time
   movement            where Folk walk, how fast (ticks per step) and what it costs
   food_sources        where calories come from: species, terrain, success rate
   lifetimes           per-Folk outcomes with the decider parameters (fitness data for a GA)
@@ -142,6 +143,12 @@ def patches(run: Run) -> pd.DataFrame:
     out = df.groupby(["tick", "species"])[["habitable", "depleted"]].sum().reset_index()
     out["share_emptied"] = out["depleted"] / out["habitable"].where(out["habitable"] > 0)
     return out[out["habitable"] > 0]
+
+
+def knowledge(run: Run) -> pd.DataFrame:
+    """Places remembered and share of the map explored, averaged over each decider's Folk, over time."""
+    df = run.csv("entities.csv")
+    return df.groupby(["tick", "decider"])[["places", "explored"]].mean().reset_index()
 
 
 def reserve_over_time(run: Run) -> pd.DataFrame:
@@ -311,6 +318,22 @@ def plot_patches(run: Run) -> plt.Figure:
     return fig
 
 
+def plot_knowledge(run: Run) -> plt.Figure:
+    """What Folk remember and how much of the map they have seen, over time."""
+    df = knowledge(run)
+    slots = run.manifest["settings"]["perception"]["memorySlots"]
+    fig, axes = plt.subplots(1, 2, figsize=(10, 3.2))
+    for decider, grp in df.groupby("decider"):
+        color = DECIDER_COLORS.get(decider)
+        axes[0].plot(grp["tick"], grp["places"], label=decider, color=color)
+        axes[1].plot(grp["tick"], grp["explored"], label=decider, color=color)
+    axes[0].set(title=f"Places remembered (of {slots} slots)", xlabel="tick", ylim=(0, slots + 1))
+    axes[1].set(title="Share of the map seen", xlabel="tick", ylim=(0, 1))
+    axes[0].legend()
+    fig.tight_layout()
+    return fig
+
+
 def plot_reserve(run: Run) -> plt.Figure:
     """Mean, minimum and maximum calorie reserve over time, per decider."""
     df = reserve_over_time(run)
@@ -364,6 +387,7 @@ PLOTS = {
     "reserve": plot_reserve,
     "movement": plot_movement,
     "patches": plot_patches,
+    "knowledge": plot_knowledge,
     "food_sources": plot_food_sources,
     "lifetimes": plot_lifetimes,
 }
@@ -394,7 +418,7 @@ def report(run: Run, out: Path | None = None) -> Path:
     print(_final(terrain_fill(run)).pivot(index="terrain", columns="species", values="fill"))
     life = lifetimes(run)
     print("\n== per-Folk outcomes by decider ==")
-    print(life.groupby("decider")[["lived", "meals", "kcal_in_per_tick", "kcal_out_per_tick", "net_kcal_per_tick", "injuries", "goals", "interrupts"]].mean())
+    print(life.groupby("decider")[["lived", "meals", "kcal_in_per_tick", "kcal_out_per_tick", "net_kcal_per_tick", "injuries", "goals", "interrupts", "discoveries", "explores"]].mean())
     effects = parameter_effects(run)
     if len(effects):
         print("\n== parameter correlation with calories eaten and with net calories, per tick ==")

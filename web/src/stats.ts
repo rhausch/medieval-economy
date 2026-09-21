@@ -95,6 +95,7 @@ export function createStatsView(root: HTMLElement): StatsView {
     ['food', 'Food by terrain', true],
     ['time', 'Time by action', false],
     ['walking', 'Walking by terrain', false],
+    ['knowledge', 'What Folk know', false],
     ['energy', 'Calories in and out', false],
     ['sources', 'Where calories come from', false],
   ] as const) {
@@ -249,6 +250,25 @@ export function createStatsView(root: HTMLElement): StatsView {
     return box;
   }
 
+  /** How much each decider's Folk remember and have explored. */
+  function knowledge(msg: StatsMessage): void {
+    const rows = msg.knowledge.map((k) => [
+      deciderName(k.decider),
+      k.places.toFixed(1),
+      compact(k.meanAge),
+      percent(k.explored),
+    ]);
+    set(
+      'knowledge',
+      rows.length > 0 ? table(['', 'places', 'avg age', 'map seen'], rows) : 'No Folk yet.',
+      el(
+        'div',
+        'muted small',
+        'Places remembered per Folk, how many ticks ago they were seen on average, and the share of the map each has seen.',
+      ),
+    );
+  }
+
   /** Steps taken on each terrain, how long they took (1 is a tile a tick) and what they cost. */
   function walking(msg: StatsMessage): void {
     const byTerrain = new Map<string, { steps: number; ticks: number; kcal: number }>();
@@ -332,6 +352,7 @@ export function createStatsView(root: HTMLElement): StatsView {
       food(msg);
       set('time', timeByAction(msg));
       walking(msg);
+      knowledge(msg);
       set('energy', calories(msg));
       sources(msg);
     },

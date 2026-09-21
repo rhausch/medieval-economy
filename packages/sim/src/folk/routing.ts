@@ -201,3 +201,59 @@ export function routeTo(router: Router, target: number): Int32Array {
   for (let t = target; router.parent[t]! >= 0; t = router.parent[t]!) steps.push(t);
   return Int32Array.from(steps.reverse());
 }
+
+/**
+ * The quickest way to a known tile (A*: the search is drawn toward the target, so it only looks at the area
+ * along the way). Every step takes at least a tick, so the straight-line count of steps never overestimates.
+ * Returns true if the target was reached within `folk.searchTicks`; afterwards `routeTo` gives the path.
+ */
+export function route(
+  world: World,
+  settings: Settings,
+  router: Router,
+  start: number,
+  target: number,
+): boolean {
+  const { width, height, terrain, elevation } = world;
+  const { movement, units, folk } = settings;
+  const r = router;
+  const tx = target % width;
+  const ty = (target - tx) / width;
+  const maxTicks = folk.searchTicks;
+  const stampNow = ++r.current;
+  r.heap.clear();
+  r.stamp[start] = stampNow;
+  r.dist[start] = 0;
+  r.parent[start] = -1;
+  r.heap.push(Math.abs((start % width) - tx) + Math.abs(Math.floor(start / width) - ty), start);
+  while (r.heap.size > 0) {
+    r.heap.pop();
+    const node = r.heap.topNode;
+    if (r.closed[node] === stampNow) continue;
+    r.closed[node] = stampNow;
+    if (node === target) return true;
+    const d = r.dist[node]!;
+    const cx = node % width;
+    const cy = (node - cx) / width;
+    const e0 = elevation[node]!;
+    for (const [dx, dy] of DIRS) {
+      const nx = cx + dx;
+      const ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      const next = ny * width + nx;
+      const speed = r.speed[terrain[next]!]!;
+      if (speed === 0 || r.closed[next] === stampNow) continue;
+      const meters = (elevation[next]! - e0) * movement.elevationRangeM;
+      const grade = (meters < 0 ? -meters : meters) / units.tileMeters;
+      const nd = d + (1 + movement.slopeSlowdown * grade) / speed;
+      if (nd > maxTicks) continue;
+      if (r.stamp[next] !== stampNow || nd < r.dist[next]!) {
+        r.stamp[next] = stampNow;
+        r.dist[next] = nd;
+        r.parent[next] = node;
+        r.heap.push(nd + Math.abs(nx - tx) + Math.abs(ny - ty), next);
+      }
+    }
+  }
+  return false;
+}

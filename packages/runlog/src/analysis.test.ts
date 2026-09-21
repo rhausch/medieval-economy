@@ -47,6 +47,7 @@ describe.skipIf(!hasPython)('scripts/analyze_run.py', () => {
       'reserve',
       'movement',
       'patches',
+      'knowledge',
       'food_sources',
       'lifetimes',
     ]) {

@@ -30,6 +30,17 @@
       "hills": 0.6
     }
   },
+  "perception": {
+    "terrainRange": 10,
+    "cellSize": 8,
+    "memorySlots": 32,
+    "mergeRadius": 2,
+    "memoryTicks": 60000,
+    "exploreRadiusCells": 6,
+    "staleExploreTicks": 3000,
+    "walkEstimate": 1.25,
+    "initialKnowledgeRadius": 16
+  },
   "injury": {
     "durationMultiplier": [1, 2, 10],
     "healKcalPerTick": [0, 6, 20],
@@ -40,7 +51,7 @@
   "folk": {
     "count": 20,
     "carryCapacityKg": 20,
-    "searchTicks": 90,
+    "searchTicks": 300,
     "idleChance": 0.4,
     "idleTicks": 4,
     "wanderRadius": 6,
@@ -121,6 +132,7 @@
         "optimum": 0.6,
         "tolerance": 0.9
       },
+      "detectRange": 1,
       "coverage": 0.04,
       "patchScale": 5,
       "patchRichness": 0.5,
@@ -141,6 +153,7 @@
         "optimum": 0.5,
         "tolerance": 1
       },
+      "detectRange": 1,
       "coverage": 0.03,
       "patchScale": 6,
       "patchRichness": 0.5,
@@ -162,6 +175,7 @@
         "optimum": 0.5,
         "tolerance": 1
       },
+      "detectRange": 3,
       "coverage": 0.08,
       "patchScale": 10,
       "patchRichness": 0.5,
@@ -184,6 +198,7 @@
         "optimum": 0.5,
         "tolerance": 1
       },
+      "detectRange": 3,
       "coverage": 0.02,
       "patchScale": 24,
       "patchRichness": 0.5,
@@ -207,6 +222,7 @@
         "optimum": 0.5,
         "tolerance": 1
       },
+      "detectRange": 0,
       "coverage": 1,
       "patchScale": 10,
       "patchRichness": 0.3,
@@ -234,6 +250,14 @@
         "restIfInjured": {
           "min": 0,
           "max": 2
+        },
+        "giveUp": {
+          "min": 1,
+          "max": 30
+        },
+        "maxAge": {
+          "min": 1000,
+          "max": 60000
         }
       }
     },
@@ -270,6 +294,18 @@
         "reserve": {
           "min": 1500,
           "max": 12000
+        },
+        "wExplore": {
+          "min": 0.2,
+          "max": 2
+        },
+        "halfLife": {
+          "min": 500,
+          "max": 30000
+        },
+        "giveUp": {
+          "min": 1,
+          "max": 30
         }
       }
     }

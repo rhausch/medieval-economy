@@ -54,6 +54,9 @@ function arena(options: {
   sim.world.terrain.fill(options.terrain ?? TERRAIN.grass.id);
   sim.world.elevation.fill(0.5);
   sim.ecology.stock.forEach((s) => s.fill(0));
+  // The Folk learned its home ground at spawn; wipe that memory along with the food.
+  sim.folk.memSpecies.fill(-1);
+  sim.folk.memTile.fill(-1);
   const [x, y] = options.at ?? [2, Math.floor(height / 2)];
   sim.folk.x[0] = x;
   sim.folk.y[0] = y;
@@ -200,6 +203,7 @@ describe('routes', () => {
     for (let y = 3; y <= 5; y++)
       for (let x = 10; x <= 16; x++) a.sim.world.terrain[a.tile(x, y)] = TERRAIN.forest.id;
     a.sim.ecology.stock[0]![a.tile(26, 4)] = 80; // berries
+    a.sim.learnArea(0, 200);
     a.sim.folk.reserve[0] = 0.5 * a.sim.settings.body.reserveCapacity;
     return a;
   }
@@ -234,6 +238,7 @@ describe('goals', () => {
   it('keeps the goal on the blackboard and does not decide again while walking to it', () => {
     const a = arena({ width: 40, height: 9, at: [2, 4] });
     a.sim.ecology.stock[0]![a.tile(30, 4)] = 80;
+    a.sim.learnArea(0, 200);
     a.sim.folk.reserve[0] = 0.6 * a.sim.settings.body.reserveCapacity;
     a.sim.step();
     const goalTile = a.sim.folk.goalTile[0]!;
@@ -250,6 +255,7 @@ describe('goals', () => {
   it('sets a fresh goal once the work is done', () => {
     const a = arena({ width: 20, height: 9, at: [2, 4] });
     a.sim.ecology.stock[0]![a.tile(6, 4)] = 80;
+    a.sim.learnArea(0, 200);
     a.sim.folk.reserve[0] = 0.6 * a.sim.settings.body.reserveCapacity;
     const events = run(a.sim, 30);
     const gathered = events.find((e) => e.type === 'gather');
@@ -299,6 +305,7 @@ describe('interrupts', () => {
   it('drops a walk toward food when the Folk would rather eat, and then it eats', () => {
     const a = arena({ width: 60, height: 9, at: [2, 4] });
     a.sim.ecology.stock[0]![a.tile(55, 4)] = 80;
+    a.sim.learnArea(0, 200);
     // eatBelow is 0.3: start just above it, carrying food, so the reserve crosses it on the way.
     a.sim.folk.reserve[0] = 0.302 * a.sim.settings.body.reserveCapacity;
     a.sim.folk.inventory[2] = 3; // meat
@@ -315,6 +322,7 @@ describe('interrupts', () => {
   it('does not interrupt a Folk that has no food to eat', () => {
     const a = arena({ width: 60, height: 9, at: [2, 4] });
     a.sim.ecology.stock[0]![a.tile(55, 4)] = 80;
+    a.sim.learnArea(0, 200);
     a.sim.folk.reserve[0] = 0.302 * a.sim.settings.body.reserveCapacity;
     expect(run(a.sim, 60).some((e) => e.type === 'interrupt')).toBe(false);
   });
@@ -328,6 +336,7 @@ describe('interrupts', () => {
       settings: settingsWith({ folk: { interruptCooldown: cooldown } }),
     });
     a.sim.ecology.stock[0]![a.tile(55, 4)] = 80;
+    a.sim.learnArea(0, 200);
     a.sim.folk.reserve[0] = 0.302 * a.sim.settings.body.reserveCapacity;
     a.sim.folk.inventory[2] = 3;
     const times = run(a.sim, 200)
@@ -337,22 +346,26 @@ describe('interrupts', () => {
       expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(cooldown);
   });
 
-  it('drops a walk when the place it was heading for runs out, and picks somewhere else', () => {
+  it('drops a walk when it sees the place it was heading for has run out, and picks somewhere else', () => {
     const a = arena({ width: 60, height: 9, at: [2, 4] });
     const berries = a.sim.ecology.stock[0]!;
     berries[a.tile(40, 4)] = 80;
-    berries[a.tile(5, 1)] = 80; // another patch, close by but not the nearest by the first scan? it is nearer
-    berries[a.tile(5, 1)] = 0;
     berries[a.tile(20, 7)] = 80;
+    a.sim.learnArea(0, 200);
     a.sim.folk.reserve[0] = 0.6 * a.sim.settings.body.reserveCapacity;
     a.sim.step();
     const first = a.sim.folk.goalTile[0]!;
     expect(first).toBe(a.tile(20, 7));
     run(a.sim, 4);
     berries[first] = 0; // someone else got there first
-    const events = run(a.sim, 6);
+    const events = run(a.sim, 40);
     const interrupt = events.find((e) => e.type === 'interrupt');
     expect(interrupt?.type === 'interrupt' && interrupt.reason).toBe('depleted');
+    // Plants are seen from one tile away: it only finds out when it gets there, not from afar.
+    if (interrupt?.type === 'interrupt') {
+      expect(Math.abs(interrupt.x - 20)).toBeLessThanOrEqual(1);
+      expect(Math.abs(interrupt.y - 7)).toBeLessThanOrEqual(1);
+    }
     expect(a.sim.folk.goalTile[0] === first).toBe(false);
   });
 });
@@ -382,9 +395,18 @@ describe('deciders and interrupts', () => {
           durationMultiplier: 1,
           params,
           paramBase: 0,
-          targetTile: Int32Array.from({ length: OPTION_COUNT }, () => (rng.next() < 0.5 ? 5 : -1)),
-          targetTicks: Float32Array.from({ length: OPTION_COUNT }, () => rng.next() * 30),
-          targetKcal: Float32Array.from({ length: OPTION_COUNT }, () => rng.next() * 500),
+          memCount: 6,
+          memOption: Int32Array.from({ length: 12 }, (_, i) =>
+            i < 6 ? 1 + Math.floor(rng.next() * 4) : -1,
+          ),
+          memTile: Int32Array.from({ length: 12 }, (_, i) => 100 + i),
+          memAmount: Float32Array.from({ length: 12 }, () => rng.next() * 100),
+          memAge: Float32Array.from({ length: 12 }, () => rng.next() * 20000),
+          memTicks: Float32Array.from({ length: 12 }, () => rng.next() * 30),
+          memKcal: Float32Array.from({ length: 12 }, () => rng.next() * 500),
+          exploreTile: rng.next() < 0.6 ? 7 : -1,
+          exploreTicks: rng.next() * 30,
+          unexplored: rng.next(),
           settings,
         };
         if (!decider.shouldInterrupt(senses)) continue;

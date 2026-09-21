@@ -15,6 +15,15 @@ const FOLK_MIN_TILES = 0.6;
 /** How close (in screen pixels) a click must be to a Folk to select it. */
 const FOLK_PICK_PX = 9;
 
+/** What the selected Folk knows: the places it remembers, and how much of the map it has seen. */
+export interface KnowledgeView {
+  memory: { species: string; x: number; y: number; amount: number; age: number }[];
+  explored: { cellSize: number; cols: number; rows: number; ages: number[] };
+}
+
+/** Squares not seen for this many ticks are drawn as fading back into the fog. */
+const FOG_STALE_TICKS = 3000;
+
 /** What the selected Folk is heading for, drawn on the map. */
 export interface GoalView {
   path: { x: number; y: number }[];
@@ -62,6 +71,11 @@ export class WorldView {
   private readonly grid = new Graphics();
   private readonly highlight = new Graphics();
   private readonly pathLayer = new Graphics();
+  private readonly memoryLayer = new Graphics();
+  private fog: Sprite | null = null;
+  private fogCtx: CanvasRenderingContext2D | null = null;
+  private fogImage: ImageData | null = null;
+  private knowledge: KnowledgeView | null = null;
   private readonly folkLayer = new Container();
   private readonly markerPool: Sprite[] = [];
   private readonly folkPool: Sprite[] = [];
@@ -97,7 +111,14 @@ export class WorldView {
     });
     host.appendChild(this.app.canvas);
     this.app.stage.addChild(this.stage);
-    this.stage.addChild(this.markers, this.grid, this.pathLayer, this.folkLayer, this.highlight);
+    this.stage.addChild(
+      this.markers,
+      this.grid,
+      this.memoryLayer,
+      this.pathLayer,
+      this.folkLayer,
+      this.highlight,
+    );
     this.circle = circleTexture();
     this.folkTex = folkTexture();
     this.bindInput(this.app.canvas);
@@ -182,6 +203,12 @@ export class WorldView {
   setGoal(goal: GoalView | null): void {
     this.goal = goal;
     this.redrawPath();
+  }
+
+  /** Show what the selected Folk knows: fog over ground it has not seen, and rings on the places it remembers. */
+  setKnowledge(knowledge: KnowledgeView | null): void {
+    this.knowledge = knowledge;
+    this.redrawKnowledge();
   }
 
   setSelectedFolk(id: number | null): void {
@@ -332,6 +359,59 @@ export class WorldView {
     for (let i = this.folk.length; i < this.folkPool.length; i++) this.folkPool[i]!.visible = false;
   }
 
+  private redrawKnowledge(): void {
+    this.memoryLayer.clear();
+    const k = this.knowledge;
+    if (!k) {
+      if (this.fog) this.fog.visible = false;
+      return;
+    }
+    const { cols, rows, cellSize, ages } = k.explored;
+    if (
+      !this.fogCtx ||
+      !this.fog ||
+      this.fog.texture.width !== cols ||
+      this.fog.texture.height !== rows
+    ) {
+      if (this.fog) {
+        this.stage.removeChild(this.fog);
+        this.fog.destroy({ texture: true, textureSource: true });
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = cols;
+      canvas.height = rows;
+      this.fogCtx = canvas.getContext('2d');
+      this.fogImage = this.fogCtx?.createImageData(cols, rows) ?? null;
+      const texture = Texture.from(canvas);
+      texture.source.scaleMode = 'nearest';
+      this.fog = new Sprite(texture);
+      this.fog.scale.set(cellSize);
+      this.stage.addChildAt(this.fog, this.stage.getChildIndex(this.markers) + 1);
+    }
+    if (this.fogCtx && this.fogImage && this.fog) {
+      const data = this.fogImage.data;
+      for (let i = 0; i < ages.length; i++) {
+        const age = ages[i]!;
+        // Never seen: dark. Seen long ago: a lighter haze. Seen lately: clear.
+        const alpha = age < 0 ? 170 : Math.round(90 * Math.min(1, age / (2 * FOG_STALE_TICKS)));
+        data[i * 4] = 8;
+        data[i * 4 + 1] = 12;
+        data[i * 4 + 2] = 20;
+        data[i * 4 + 3] = alpha;
+      }
+      this.fogCtx.putImageData(this.fogImage, 0, 0);
+      this.fog.texture.source.update();
+      this.fog.visible = true;
+    }
+    const z = this.zoom;
+    for (const place of k.memory) {
+      const info = this.species.find((sp) => sp.key === place.species);
+      this.memoryLayer
+        .circle(place.x + 0.5, place.y + 0.5, Math.max(0.5, 7 / z))
+        .stroke({ width: Math.max(2 / z, 0.06), color: info?.color ?? 0xffffff, alpha: 0.95 });
+    }
+  }
+
   private redrawPath(): void {
     this.pathLayer.clear();
     const goal = this.goal;
@@ -428,6 +508,7 @@ export class WorldView {
     this.updateFolk();
     this.redrawHighlight();
     this.redrawPath();
+    this.redrawKnowledge();
     this.redrawMarkers();
   }
 }

@@ -38,12 +38,14 @@ export {
   carriedTotals,
   consumptionRows,
   folkCounters,
+  knowledgeOf,
   ledgerRows,
   sourceRows,
   travelRows,
   terrainResources,
   type ActivityRow,
   type ConsumptionRow,
+  type Knowledge,
   type LedgerRow,
   type Metrics,
   type SourceRow,
@@ -51,3 +53,5 @@ export {
   type TravelRow,
 } from './metrics';
 export { TimingStat, resetPerf, summarize, type Perf, type TimingSummary } from './perf';
+export { createRouter, route, routeTo, search } from './folk/routing';
+export { gridOf } from './folk/store';

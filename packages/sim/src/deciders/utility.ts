@@ -3,16 +3,32 @@ import { param, type DeciderDef, type Intent, type Senses } from './types';
 
 /** Below this share of the reserve (hunger above 0.6) eating beats everything else in the scoring. */
 const EMERGENCY_HUNGER = 0.6;
-
 /** The score eating gets in an emergency, above anything else an option can reach. */
 const EMERGENCY_SCORE = 100;
 
-const P = { need: 0, yield: 1, effort: 2, risk: 3, distance: 4, rest: 5, wander: 6, reserve: 7 };
+const P = {
+  need: 0,
+  yield: 1,
+  effort: 2,
+  risk: 3,
+  distance: 4,
+  rest: 5,
+  wander: 6,
+  reserve: 7,
+  explore: 8,
+  halfLife: 9,
+  giveUp: 10,
+};
+
+/** For each foraging option, the remembered place with the best score so far. */
+const BEST_PLACE = new Int32Array(OPTION_COUNT);
 
 /**
- * Utility AI: score every available option on how hungry the Folk is, the expected net calories per
- * tick (what the food is worth minus what the walk and the work burn, over the time both take), and the
- * effort, injury risk and distance, each scaled by that Folk's own weights. The highest score wins.
+ * Utility AI: score every available option on how hungry the Folk is, the expected net calories per tick (what
+ * the food is worth minus what the walk and the work burn, over the time both take), and the effort, injury risk
+ * and distance, each scaled by that Folk's own weights. Places it remembers are trusted less the longer ago they
+ * were seen (an animal seen long ago has likely moved on); exploring is scored on how much nearby ground is
+ * unexplored. The highest score wins.
  */
 export const UTILITY: DeciderDef = {
   id: 1,
@@ -28,9 +44,13 @@ export const UTILITY: DeciderDef = {
     { key: 'wRest', label: 'Weight: rest', min: 0.2, max: 2 },
     { key: 'wWander', label: 'Weight: wander', min: 0, max: 0.5 },
     { key: 'reserve', label: 'Food carried wanted (kcal)', min: 1500, max: 12000 },
+    { key: 'wExplore', label: 'Weight: explore', min: 0.2, max: 2 },
+    { key: 'halfLife', label: 'Memory half-life (ticks)', min: 500, max: 30000 },
+    { key: 'giveUp', label: 'Leaves plants at (kg)', min: 1, max: 30 },
   ],
   decide(s: Senses, out: Intent, scores: Float32Array): void {
     scores.fill(Number.NaN, 0, OPTION_COUNT);
+    BEST_PLACE.fill(-1);
     const { goods, skills } = s.settings;
     const kcalPerKg = (key: string): number => goods.find((g) => g.key === key)?.kcalPerKg ?? 0;
     const hunger = 1 - s.reserve / s.capacity;
@@ -49,30 +69,54 @@ export const UTILITY: DeciderDef = {
       if (hunger > EMERGENCY_HUNGER) scores[OPTION.eat] = EMERGENCY_SCORE;
     }
 
-    for (const def of s.settings.actions) {
-      const tile = s.targetTile[def.option]!;
-      if (tile < 0 || s.roomKg < 0.5) continue;
-      const walkTicks = s.targetTicks[def.option]!;
+    let anyPays = false;
+    for (let i = 0; i < s.memCount; i++) {
+      const option = s.memOption[i]!;
+      if (option < 0 || s.roomKg < 0.5) continue;
+      const def = s.settings.actions.find((a) => a.option === option);
+      if (!def) continue;
+      const amount = s.memAmount[i]!;
+      // Plants are worked only down to the level the Folk gives up at, so the patch can recover.
+      if (def.kind === 'plant' && amount < Math.max(def.minStock, param(s, P.giveUp))) continue;
       const m = s.durationMultiplier;
       const skill = def.skill === 'foraging' ? s.foraging : s.hunting;
+      const trust = 1 / (1 + s.memAge[i]! / param(s, P.halfLife));
       const kg =
         def.kind === 'plant'
-          ? Math.min(def.yield * (1 + skills.yieldBonus * skill), s.roomKg)
+          ? Math.min(def.yield * (1 + skills.yieldBonus * skill), s.roomKg, amount)
           : Math.min(skills.maxSuccess, def.baseSuccess + skills.successBonus * skill) *
-            Math.min(def.yield, s.roomKg);
+            Math.min(def.yield, s.roomKg) *
+            trust;
       const gain = kg * kcalPerKg(def.good);
+      const walkTicks = s.memTicks[i]!;
       const travelTicks = walkTicks * m;
       const workTicks = Math.ceil(def.ticks * m);
-      // Calories burned above baseline by the walk (including climbing) and the work.
-      const cost = s.targetKcal[def.option]! * m + workTicks * def.kcalPerTick;
+      // Calories burned above baseline by the walk and the work.
+      const cost = s.memKcal[i]! * m + workTicks * def.kcalPerTick;
       const rate = (gain - cost) / (travelTicks + workTicks);
+      if (rate > 0) anyPays = true;
       const risk = (def.minorInjury + 4 * def.seriousInjury) * (1 + hunger);
-      scores[def.option] =
+      const score =
         (rate > 0 ? survival : 0) +
         param(s, P.yield) * (rate / (100 + Math.abs(rate))) * motive -
         (param(s, P.effort) * cost) / 1000 -
         param(s, P.risk) * risk * 2 -
         (param(s, P.distance) * walkTicks) / 40;
+      if (Number.isNaN(scores[option]!) || score > scores[option]!) {
+        scores[option] = score;
+        BEST_PLACE[option] = i;
+      }
+    }
+
+    if (s.exploreTile >= 0) {
+      const moving = s.settings.activity.moving;
+      const cost = s.exploreTicks * s.durationMultiplier * moving;
+      scores[OPTION.explore] =
+        // With nothing worth going to and food short, a hungry Folk goes looking.
+        (anyPays ? 0 : survival) +
+        param(s, P.explore) * s.unexplored * (0.3 + motive) -
+        (param(s, P.effort) * cost) / 1000 -
+        (param(s, P.distance) * s.exploreTicks) / 40;
     }
 
     scores[OPTION.rest] = s.injury > 0 ? param(s, P.rest) * 0.5 * s.injury * (1 - hunger) : 0;
@@ -88,7 +132,12 @@ export const UTILITY: DeciderDef = {
       }
     }
     out.option = best;
-    out.tile = s.targetTile[best] ?? -1;
+    out.tile =
+      best === OPTION.explore
+        ? s.exploreTile
+        : BEST_PLACE[best]! >= 0
+          ? s.memTile[BEST_PLACE[best]!]!
+          : -1;
   },
   /** In the emergency zone with food in the pack: stop and eat. */
   shouldInterrupt(s: Senses): boolean {

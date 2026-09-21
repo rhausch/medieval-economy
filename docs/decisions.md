@@ -191,3 +191,13 @@ All costs, yields, speeds, densities and ranges live in a configuration file loa
 - **Animal food: separate is the default.** Measured over 30,000 ticks on three seeds and four coverage levels, shared-diet animals go extinct everywhere while separate ones thrive and give Folk 4 to 25 times as many hunts. The forage layer exists only under the animals to keep it small. Shared stays available (`ecology.separateAnimalFood: 0`).
 - **Starting sparsity 1x** from the sweep (no deaths at 1x and 2x, marginal at 0.5x, famines at 0.25x). Overgrazing appears in animals; plants are barely dented by 20 Folk.
 - **Known cost, deferred to F4:** sparse food makes each omniscient food search expensive (about 100 to 350 microseconds), which limits Folk counts until Folk use remembered patches. The search budget default stays at 90 ticks.
+
+## 2026-09-20: F4 built: perception and memory
+
+- **Sight ranges are per-species parameters** (the user's spec): how much of a plant is seen at 1 tile, an animal at 3, terrain at 10 (`perception.terrainRange`); `detectRange` 0 hides a species from a distance. Amounts are seen, not just presence.
+- **Sightings merge into remembered places** (within 2 tiles, keeping the richer tile), refreshed when the Folk sees them again, forgotten when seen empty (never from afar) or after 60,000 ticks, with the longest unseen replaced when memory (32 places) is full.
+- **Decisions read memory; only the chosen place is routed.** Walk estimates for remembered places are straight-line distance (no search); the chosen route uses A*, tested equal to an exhaustive search. This removed the food-search cost from F3 (about 100 to 350 microseconds a decision down to about 1.4).
+- **Exploring and fog of war.** An explore option goes to the nearest unexplored or long unvisited 8-tile square; the explored map is the terrain sight; the selected Folk's knowledge is drawn as fog of war with rings on remembered places.
+- **Home ground.** A new Folk knows 16 tiles around the settlement. A sweep showed Folk survive even with none, so it is a setting rather than a requirement.
+- **Giving-up density and memory half-life are decider parameters**, so leaving a patch to recover, and how far to trust an old sighting of game, can be tuned or evolved. Utility now has 11 parameters and rules 6 (the array limit is 12).
+- **Nothing is known that has not been seen.** Interrupts for a place running out fire only when the Folk can see it. "Something better was sighted" as an interrupt is left for later.

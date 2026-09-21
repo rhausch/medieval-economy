@@ -27,6 +27,7 @@ const overlayEl = $<HTMLSelectElement>('overlay');
 const spritesEl = $<HTMLInputElement>('sprites');
 const totalsEl = $('totals');
 const decidersEl = $('deciders');
+const showKnowledgeEl = $<HTMLInputElement>('show-knowledge');
 const configEl = $('config');
 const statsView = createStatsView($('stats'));
 const folkDetailEl = $('folk-detail');
@@ -234,8 +235,15 @@ function describeEvent(e: FolkDetailMessage['events'][number]): string {
       return `${at} moved to ${e.x}, ${e.y}`;
     case 'goal':
       return `${at} set out to ${e.option} at ${e.targetX}, ${e.targetY} (about ${e.ticks.toFixed(0)} ticks away)`;
-    case 'interrupt':
-      return `${at} stopped ${e.option === 'wander' ? 'strolling' : `on the way to ${e.option}`}: ${e.reason === 'hungry' ? 'time to eat' : 'the place ran out'}`;
+    case 'interrupt': {
+      const doing =
+        e.option === 'wander'
+          ? 'strolling'
+          : e.option === 'explore'
+            ? 'exploring'
+            : `on the way to ${e.option}`;
+      return `${at} stopped ${doing}: ${e.reason === 'hungry' ? 'time to eat' : 'the place ran out'}`;
+    }
   }
 }
 
@@ -247,17 +255,29 @@ function showFolk(msg: FolkDetailMessage): void {
       selectedFolk = null;
       view.setSelectedFolk(null);
       view.setGoal(null);
+      view.setKnowledge(null);
     }
     return;
   }
   const f = msg.folk;
   view.setGoal(f.goal);
+  view.setKnowledge(showKnowledgeEl.checked ? { memory: f.memory, explored: f.explored } : null);
   const goalLine = document.createElement('div');
   goalLine.className = 'muted';
   goalLine.style.margin = '4px 0';
   goalLine.textContent = f.goal
     ? `Goal: ${f.goal.option} at ${f.goal.targetX}, ${f.goal.targetY}, ${f.goal.stepsLeft} steps left (set ${f.goal.age} ticks ago)`
     : 'No goal';
+  const explored = f.explored.ages.filter((a) => a >= 0).length / f.explored.ages.length;
+  const memoryTitle = document.createElement('h2');
+  memoryTitle.textContent = `Memory: ${f.memory.length} places, ${(100 * explored).toFixed(0)}% of the map seen`;
+  const memoryList = document.createElement('div');
+  memoryList.className = 'events';
+  for (const place of [...f.memory].sort((a, b) => a.age - b.age).slice(0, 10)) {
+    const line = document.createElement('div');
+    line.textContent = `${place.species} ${place.amount.toFixed(1)} at ${place.x}, ${place.y} (seen ${place.age} ticks ago)`;
+    memoryList.append(line);
+  }
   const dl = document.createElement('dl');
   const rows: [string, string][] = [
     ['Position', `${f.x}, ${f.y}`],
@@ -375,6 +395,8 @@ function showFolk(msg: FolkDetailMessage): void {
     goalLine,
     dl,
     inventory,
+    memoryTitle,
+    memoryList,
     chosenTitle,
     scoreList,
     paramTitle,
@@ -403,6 +425,7 @@ const conn = connect(SERVER_URL, {
     selectedFolk = null;
     view.setSelectedFolk(null);
     view.setGoal(null);
+    view.setKnowledge(null);
     folkDetailEl.className = 'muted';
     folkDetailEl.textContent = 'Click a Folk to inspect it.';
     showWorld(data);

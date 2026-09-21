@@ -31,6 +31,11 @@ interface SpeciesBase {
    * seeding either, a patch grazed below it recovers only from neighbouring stock.
    */
   readonly viability: number;
+  /**
+   * How far away (in tiles, each way) a Folk can see how much of this species a tile holds. 0 means it
+   * cannot be seen from a distance. Plants are seen only up close, animals from farther off.
+   */
+  readonly detectRange: number;
   /** Logistic growth rate per tick. */
   readonly growthRate: number;
   /** Fraction of the gap to capacity that regrows from nothing each tick (a seed bank). */
@@ -68,6 +73,7 @@ export const SPECIES_LIST: readonly SpeciesDef[] = [
     maxCapacity: 100,
     terrainAffinity: { forest: 0.9, grass: 0.6, hills: 0.3, sand: 0.05 },
     moisture: { optimum: 0.6, tolerance: 0.9 },
+    detectRange: 1,
     coverage: 0.04,
     patchScale: 5,
     patchRichness: 0.5,
@@ -85,6 +91,7 @@ export const SPECIES_LIST: readonly SpeciesDef[] = [
     maxCapacity: 150,
     terrainAffinity: { forest: 1, hills: 0.6, grass: 0.4 },
     moisture: { optimum: 0.5, tolerance: 1 },
+    detectRange: 1,
     coverage: 0.03,
     patchScale: 6,
     patchRichness: 0.5,
@@ -102,6 +109,7 @@ export const SPECIES_LIST: readonly SpeciesDef[] = [
     maxCapacity: 10,
     terrainAffinity: { grass: 1, forest: 0.5, hills: 0.4, sand: 0.1 },
     moisture: { optimum: 0.5, tolerance: 1 },
+    detectRange: 3,
     coverage: 0.08,
     patchScale: 10,
     patchRichness: 0.5,
@@ -122,6 +130,7 @@ export const SPECIES_LIST: readonly SpeciesDef[] = [
     maxCapacity: 4,
     terrainAffinity: { forest: 1, grass: 0.6, hills: 0.5 },
     moisture: { optimum: 0.5, tolerance: 1 },
+    detectRange: 3,
     coverage: 0.02,
     patchScale: 24,
     patchRichness: 0.5,
@@ -142,6 +151,7 @@ export const SPECIES_LIST: readonly SpeciesDef[] = [
     maxCapacity: 300,
     terrainAffinity: { grass: 1, forest: 0.6, hills: 0.5, sand: 0.1 },
     moisture: { optimum: 0.5, tolerance: 1 },
+    detectRange: 0,
     coverage: 1,
     patchScale: 10,
     patchRichness: 0.3,

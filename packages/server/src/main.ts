@@ -11,6 +11,8 @@ import {
   DECIDERS,
   INJURY_NAMES,
   ledgerRows,
+  knowledgeOf,
+  gridOf,
   travelRows,
   PENDING_NONE,
   folkCounters,
@@ -157,6 +159,40 @@ function goalInfo(slot: number): NonNullable<FolkDetailMessage['folk']>['goal'] 
   };
 }
 
+/** What a Folk remembers and has explored, for the inspector and the map. */
+function mindInfo(
+  slot: number,
+): Pick<NonNullable<FolkDetailMessage['folk']>, 'memory' | 'explored'> {
+  const f = sim.folk;
+  const { world, settings } = sim;
+  const slots = settings.perception.memorySlots;
+  const memory = [];
+  for (let k = 0; k < slots; k++) {
+    const at = slot * slots + k;
+    const species = f.memSpecies[at]!;
+    if (species < 0) continue;
+    const tile = f.memTile[at]!;
+    memory.push({
+      species: settings.species[species]!.key,
+      x: tile % world.width,
+      y: Math.floor(tile / world.width),
+      amount: f.memAmount[at]!,
+      age: sim.tick - f.memSeen[at]!,
+    });
+  }
+  const grid = gridOf(world, settings);
+  const seen = f.seenCells.subarray(slot * grid.cells, (slot + 1) * grid.cells);
+  return {
+    memory,
+    explored: {
+      cellSize: settings.perception.cellSize,
+      cols: grid.cols,
+      rows: grid.rows,
+      ages: Array.from(seen, (t) => (t < 0 ? -1 : sim.tick - t)),
+    },
+  };
+}
+
 /** Which foraging action key each work label in FOLK_ACTIONS comes from. */
 const ACTION_FOR_LABEL: Record<string, string> = {
   gathering: 'gather',
@@ -217,6 +253,7 @@ function sendFolkDetail(socket: WebSocket, id: number): void {
       injuryName: INJURY_NAMES[level] ?? 'none',
       injuryRemaining: f.injury[slot]! > 0 ? Math.max(0, f.injuryTimer[slot]!) : 0,
       goal: goalInfo(slot),
+      ...mindInfo(slot),
       chosen: OPTION_NAMES[f.choice[slot]!] ?? 'wander',
       scores: OPTION_NAMES.map((option, k) => ({
         option,
@@ -245,6 +282,31 @@ const timingInfo = (stat: { quantileMs(q: number): number; maxMs: number }): Tim
   p99Us: micros(stat.quantileMs(0.99)),
   maxUs: micros(stat.maxMs),
 });
+
+/** What each decider's Folk know, on average. */
+function knowledgeStats(): StatsMessage['knowledge'] {
+  const f = sim.folk;
+  return DECIDERS.map((d, index) => {
+    let places = 0;
+    let age = 0;
+    let explored = 0;
+    let n = 0;
+    for (let slot = 0; slot < f.count; slot++) {
+      if (f.decider[slot] !== index) continue;
+      const k = knowledgeOf(f, sim.world, sim.settings, slot, sim.tick);
+      places += k.places;
+      age += k.meanAge;
+      explored += k.explored;
+      n++;
+    }
+    return {
+      decider: d.key,
+      places: n > 0 ? places / n : 0,
+      meanAge: n > 0 ? age / n : 0,
+      explored: n > 0 ? explored / n : 0,
+    };
+  }).filter((k) => sim.folk.decider.includes(DECIDERS.findIndex((d) => d.key === k.decider)));
+}
 
 function buildStats(): StatsMessage {
   const { perf, world, ecology } = sim;
@@ -303,6 +365,7 @@ function buildStats(): StatsMessage {
     activity: activityRows(sim.metrics),
     ledger: ledgerRows(sim.metrics),
     travel: travelRows(sim.metrics),
+    knowledge: knowledgeStats(),
     sources: sourceRows(sim.metrics),
     consumption: consumptionRows(sim.metrics),
   };
