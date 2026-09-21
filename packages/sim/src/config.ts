@@ -48,10 +48,31 @@ export interface Settings {
     /** Walking speed on each walkable terrain, in tiles per tick (1 is one tile in a tick). */
     terrainSpeed: Record<string, number>;
   };
+  /** What Folk can perceive, and how their memory of it works. */
+  perception: {
+    /** How far a Folk sees the lie of the land (tiles each way); what it has seen is marked explored. */
+    terrainRange: number;
+    /** The explored map is a grid of squares this many tiles across. */
+    cellSize: number;
+    /** How many places (patches of food) a Folk can remember at once. */
+    memorySlots: number;
+    /** Sightings of one species within this many tiles of a remembered place update it instead of adding a new one. */
+    mergeRadius: number;
+    /** A remembered place is forgotten after this many ticks unseen. */
+    memoryTicks: number;
+    /** Exploring looks for unexplored squares up to this many squares away. */
+    exploreRadiusCells: number;
+    /** A square not visited for this many ticks counts as worth exploring again. */
+    staleExploreTicks: number;
+    /** Estimated walking ticks per tile of straight-line distance, when weighing remembered places. */
+    walkEstimate: number;
+    /** A new Folk already knows the area within this many tiles of the settlement (its home ground). */
+    initialKnowledgeRadius: number;
+  };
   folk: {
     count: number;
     carryCapacityKg: number;
-    /** Furthest a Folk searches for work, in ticks of walking. */
+    /** Longest walk a Folk will plan a route for, in ticks (how far it can go after a remembered place). */
     searchTicks: number;
     /** Chance that a Folk with nothing to do stands still instead of strolling. */
     idleChance: number;
@@ -123,10 +144,21 @@ export function defaultSettings(): Settings {
       climbKcalPerMeter: 0.65,
       terrainSpeed: { sand: 0.8, grass: 1, forest: 0.7, hills: 0.6 },
     },
+    perception: {
+      terrainRange: 10,
+      cellSize: 8,
+      memorySlots: 32,
+      mergeRadius: 2,
+      memoryTicks: 60000,
+      exploreRadiusCells: 6,
+      staleExploreTicks: 3000,
+      walkEstimate: 1.25,
+      initialKnowledgeRadius: 16,
+    },
     folk: {
       count: 20,
       carryCapacityKg: 20,
-      searchTicks: 90,
+      searchTicks: 300,
       idleChance: 0.4,
       idleTicks: 4,
       wanderRadius: 6,
@@ -194,6 +226,7 @@ export function settingsToFile(settings: Settings): Json {
     body: numeric(settings.body),
     activity: numeric(settings.activity),
     movement: numeric(settings.movement),
+    perception: numeric(settings.perception),
     injury: numeric(settings.injury),
     folk: {
       ...(numeric({ ...settings.folk, deciders: undefined }) as Json),
@@ -264,6 +297,20 @@ function validate(settings: Settings): void {
   positive(settings.body.mealKcal, 'body.mealKcal');
   positive(settings.folk.carryCapacityKg, 'folk.carryCapacityKg');
   positive(settings.folk.searchTicks, 'folk.searchTicks');
+  const per = settings.perception;
+  for (const key of ['terrainRange', 'cellSize', 'memorySlots', 'exploreRadiusCells'] as const) {
+    if (!(Number.isInteger(per[key]) && per[key] >= 1)) {
+      throw new ConfigError(`perception.${key} must be a whole number of at least 1`);
+    }
+  }
+  for (const key of ['mergeRadius', 'initialKnowledgeRadius'] as const) {
+    if (!(Number.isInteger(per[key]) && per[key] >= 0)) {
+      throw new ConfigError(`perception.${key} must be a whole number of at least 0`);
+    }
+  }
+  positive(per.memoryTicks, 'perception.memoryTicks');
+  positive(per.staleExploreTicks, 'perception.staleExploreTicks');
+  positive(per.walkEstimate, 'perception.walkEstimate');
   positive(settings.folk.idleTicks, 'folk.idleTicks');
   positive(settings.folk.wanderRadius, 'folk.wanderRadius');
   positive(settings.movement.elevationRangeM, 'movement.elevationRangeM');
@@ -327,6 +374,9 @@ function validate(settings: Settings): void {
     };
     if (!(sp.coverage > 0 && sp.coverage <= 1)) bad('coverage must be above 0 and at most 1');
     if (!(sp.patchScale > 0)) bad('patchScale must be greater than 0');
+    if (!(Number.isInteger(sp.detectRange) && sp.detectRange >= 0)) {
+      bad('detectRange must be a whole number of at least 0');
+    }
     if (!(sp.patchRichness >= 0 && sp.patchRichness <= 1))
       bad('patchRichness must be between 0 and 1');
     if (!(sp.viability >= 0 && sp.viability < 1)) bad('viability must be at least 0 and below 1');

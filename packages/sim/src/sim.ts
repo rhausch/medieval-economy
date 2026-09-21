@@ -53,6 +53,10 @@ export interface Sim {
   drainEvents(): SimEvent[];
   /** Advance the simulation by one fixed timestep. */
   step(): void;
+  /** The Folk looks around from where it stands, as it does after every step; returns the new places it remembers. */
+  look(slot: number): number;
+  /** Give a Folk knowledge of the ground within `radius` tiles of where it stands (its home ground at spawn). */
+  learnArea(slot: number, radius?: number): void;
 }
 
 export function createSim(config: SimConfig): Sim {
@@ -124,6 +128,9 @@ export function createSim(config: SimConfig): Sim {
     config.emitMoves ?? false,
     config.emitGoals ?? false,
   );
+  for (let slot = 0; slot < folk.count; slot++) {
+    folkContext.perception.learnArea(slot, 0, settings.perception.initialKnowledgeRadius);
+  }
   const interval = settings.ecology.interval;
   let tick = 0;
   return {
@@ -137,6 +144,12 @@ export function createSim(config: SimConfig): Sim {
     perf,
     get tick() {
       return tick;
+    },
+    look(slot) {
+      return folkContext.perception.perceive(slot, tick);
+    },
+    learnArea(slot, radius = settings.perception.initialKnowledgeRadius) {
+      folkContext.perception.learnArea(slot, tick, radius);
     },
     drainEvents() {
       return events.splice(0, events.length);

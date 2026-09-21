@@ -7,14 +7,24 @@ export const OPTION = {
   chase: 4,
   rest: 5,
   wander: 6,
+  explore: 7,
 } as const;
-export const OPTION_NAMES = ['eat', 'gather', 'dig', 'snare', 'chase', 'rest', 'wander'] as const;
+export const OPTION_NAMES = [
+  'eat',
+  'gather',
+  'dig',
+  'snare',
+  'chase',
+  'rest',
+  'wander',
+  'explore',
+] as const;
 export const OPTION_COUNT = OPTION_NAMES.length;
 
 /** Internal states a Folk can be busy with besides the decision options. */
 export const PENDING_NONE = 255;
-export const PENDING_MOVE = 7;
-export const PENDING_IDLE = 8;
+export const PENDING_MOVE = 20;
+export const PENDING_IDLE = 21;
 
 /**
  * A foraging action: work a species at the Folk's current tile for `ticks`, then resolve.

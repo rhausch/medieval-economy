@@ -4,7 +4,8 @@ import { SPECIES_LIST } from './data/species';
 import { TERRAIN_LIST } from './data/terrain';
 import { DECIDERS } from './deciders';
 import type { Ecology } from './ecology';
-import type { FolkStore } from './folk/store';
+import { gridOf, type FolkStore } from './folk/store';
+import type { Settings } from './config';
 import type { World } from './world';
 
 /** Per-Folk lifetime counters, stored per slot and reset when the slot gets a new Folk. */
@@ -20,6 +21,8 @@ export const COUNTER_NAMES = [
   'steps',
   'goals',
   'interrupts',
+  'discoveries',
+  'explores',
 ] as const;
 export const COUNTER = Object.fromEntries(COUNTER_NAMES.map((name, i) => [name, i])) as Record<
   (typeof COUNTER_NAMES)[number],
@@ -294,4 +297,37 @@ export function carriedTotals(store: FolkStore): Record<string, number> {
     out[good.key] = sum;
   });
   return out;
+}
+
+export interface Knowledge {
+  /** Places remembered, out of the memory slots available. */
+  places: number;
+  /** Mean ticks since those places were last seen (0 with no places). */
+  meanAge: number;
+  /** Share of the map's squares the Folk has ever seen. */
+  explored: number;
+}
+
+/** How much one Folk knows: places remembered, how old that knowledge is, and how much of the map it has seen. */
+export function knowledgeOf(
+  store: FolkStore,
+  world: World,
+  settings: Settings,
+  slot: number,
+  tick: number,
+): Knowledge {
+  const slots = settings.perception.memorySlots;
+  let places = 0;
+  let age = 0;
+  for (let k = 0; k < slots; k++) {
+    const at = slot * slots + k;
+    if (store.memSpecies[at]! < 0) continue;
+    places++;
+    age += tick - store.memSeen[at]!;
+  }
+  return {
+    places,
+    meanAge: places > 0 ? age / places : 0,
+    explored: store.seenCount[slot]! / gridOf(world, settings).cells,
+  };
 }

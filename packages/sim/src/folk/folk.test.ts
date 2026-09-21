@@ -38,6 +38,9 @@ function bare(deciders = ['rules'], extra = {}) {
     ...extra,
   });
   sim.ecology.stock.forEach((s) => s.fill(0));
+  // The Folk learned its home ground at spawn; wipe that memory along with the food.
+  sim.folk.memSpecies.fill(-1);
+  sim.folk.memTile.fill(-1);
   sim.drainEvents();
   return sim;
 }
@@ -48,6 +51,32 @@ function speciesIndex(sim: ReturnType<typeof createSim>, key: string): number {
 
 function tileOf(sim: ReturnType<typeof createSim>, slot = 0): number {
   return sim.folk.y[slot]! * sim.world.width + sim.folk.x[slot]!;
+}
+
+const MEMORY = 32;
+
+/** What a Folk remembers, described place by place: which option works it and how far away it is. */
+function remembers(
+  ...places: { option: number; amount?: number; age?: number; ticks?: number }[]
+): Partial<Senses> {
+  const s = {
+    memCount: places.length,
+    memOption: new Int32Array(MEMORY),
+    memTile: new Int32Array(MEMORY),
+    memAmount: new Float32Array(MEMORY),
+    memAge: new Float32Array(MEMORY),
+    memTicks: new Float32Array(MEMORY),
+    memKcal: new Float32Array(MEMORY),
+  };
+  places.forEach((p, i) => {
+    s.memOption[i] = p.option;
+    s.memTile[i] = 100 + i;
+    s.memAmount[i] = p.amount ?? 50;
+    s.memAge[i] = p.age ?? 0;
+    s.memTicks[i] = p.ticks ?? 0;
+    s.memKcal[i] = (p.ticks ?? 0) * 20;
+  });
+  return s;
 }
 
 function senses(
@@ -73,9 +102,16 @@ function senses(
     durationMultiplier: 1,
     params,
     paramBase: 0,
-    targetTile: new Int32Array(OPTION_COUNT).fill(-1),
-    targetTicks: new Float32Array(OPTION_COUNT),
-    targetKcal: new Float32Array(OPTION_COUNT),
+    memCount: 0,
+    memOption: new Int32Array(MEMORY),
+    memTile: new Int32Array(MEMORY),
+    memAmount: new Float32Array(MEMORY),
+    memAge: new Float32Array(MEMORY),
+    memTicks: new Float32Array(MEMORY),
+    memKcal: new Float32Array(MEMORY),
+    exploreTile: -1,
+    exploreTicks: 0,
+    unexplored: 0,
     settings,
     ...over,
   };
@@ -273,6 +309,7 @@ describe('foraging', () => {
     const stock = sim.ecology.stock[speciesIndex(sim, 'berries')]!;
     const tile = tileOf(sim);
     stock[tile] = 50;
+    sim.learnArea(0, 3); // it looks around and sees the berries
     sim.folk.reserve[0] = 0.95 * CAPACITY;
     let gathered = 0;
     for (let i = 0; i < 40 && gathered === 0; i++) {
@@ -298,6 +335,7 @@ describe('foraging', () => {
     }
     expect(target).toBeGreaterThanOrEqual(0);
     stock[target] = 80;
+    sim.learnArea(0, 50);
     folk.reserve[0] = 0.3 * CAPACITY;
     const events = run(sim, 80);
     expect(events.some((e) => e.type === 'gather')).toBe(true);
@@ -521,7 +559,12 @@ describe('deciders', () => {
   });
 
   it('rules: bold Folk take the risky high-yield work, cautious Folk the safe work', () => {
-    const targets = { targetTile: Int32Array.from([-1, 5, 6, 7, 8, -1, -1]) };
+    const targets = remembers(
+      { option: OPTION.gather },
+      { option: OPTION.dig },
+      { option: OPTION.snare },
+      { option: OPTION.chase },
+    );
     const bold = senses(rules, { riskTolerance: 0.9, foodTarget: 12000 }, targets);
     const careful = senses(rules, { riskTolerance: 0.1, foodTarget: 12000 }, targets);
     expect(decide(rules, bold)).toBe(OPTION.dig);
@@ -530,7 +573,7 @@ describe('deciders', () => {
 
   it('rules: nobody starving goes after dangerous game', () => {
     const targets = {
-      targetTile: Int32Array.from([-1, -1, -1, -1, 8, -1, -1]),
+      ...remembers({ option: OPTION.chase }),
       reserve: 0.2 * CAPACITY,
     };
     expect(decide(rules, senses(rules, { riskTolerance: 0.9, foodTarget: 12000 }, targets))).toBe(
@@ -540,7 +583,7 @@ describe('deciders', () => {
 
   it('utility: weights decide between safe and dangerous work', () => {
     const targets = {
-      targetTile: Int32Array.from([-1, 5, -1, -1, 8, -1, -1]),
+      ...remembers({ option: OPTION.gather }, { option: OPTION.chase }),
       reserve: 0.5 * CAPACITY,
     };
     const timid = senses(utility, { wRisk: 2, wEffort: 2, wYield: 0.6, wWander: 0 }, targets);
@@ -559,7 +602,7 @@ describe('deciders', () => {
   });
 
   it('utility: nobody starves with no food, however little they care about yield', () => {
-    const targets = { targetTile: Int32Array.from([-1, 5, -1, -1, -1, -1, -1]) };
+    const targets = remembers({ option: OPTION.gather });
     const indifferent = senses(
       utility,
       { wYield: 0.2, wWander: 0.5, wEffort: 1 },
@@ -589,7 +632,7 @@ describe('deciders', () => {
 
   it('utility: an injured Folk values slow work less', () => {
     const targets = {
-      targetTile: Int32Array.from([-1, 5, -1, -1, -1, -1, -1]),
+      ...remembers({ option: OPTION.gather }),
       reserve: 0.6 * CAPACITY,
     };
     const scoreOf = (s: Senses): number => {

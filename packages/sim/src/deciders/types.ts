@@ -31,12 +31,24 @@ export interface Senses {
   params: Float32Array;
   paramBase: number;
   /**
-   * Per option: tile of the nearest place (by walking time) the option can be done, or -1; the ticks the
-   * walk takes for an uninjured Folk; and the calories it burns walking there and climbing.
+   * What the Folk remembers: `memCount` remembered places in parallel arrays. `memOption` is the foraging option
+   * that works the place's species, `memAmount` how much was there when last seen (kg or head), `memAge` the ticks
+   * since it was last seen, and `memTicks` and `memKcal` a rough estimate of the walk there.
    */
-  targetTile: Int32Array;
-  targetTicks: Float32Array;
-  targetKcal: Float32Array;
+  memCount: number;
+  memOption: Int32Array;
+  memTile: Int32Array;
+  memAmount: Float32Array;
+  memAge: Float32Array;
+  memTicks: Float32Array;
+  memKcal: Float32Array;
+  /**
+   * Somewhere worth exploring: a walkable tile in a nearby unexplored (or long unvisited) square, or -1 if
+   * there is none; the estimated ticks to get there; and the share of nearby squares that qualify.
+   */
+  exploreTile: number;
+  exploreTicks: number;
+  unexplored: number;
   /** The run's configuration: action costs and yields, goods, body. */
   settings: Settings;
 }
@@ -74,4 +86,4 @@ export interface DeciderDef {
 }
 
 /** Most parameters any decider may have. */
-export const MAX_PARAMS = 8;
+export const MAX_PARAMS = 12;

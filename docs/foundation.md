@@ -71,17 +71,17 @@ The Folk that balances these costs is doing optimal foraging: leave a patch when
 
 ## Perception and the blackboard
 
-Each Folk has a private blackboard (shared boards come with groups):
+Built in F4. Each Folk has a private blackboard; shared boards come with groups.
 
-- **Sightings:** where it saw food, of which species, how much, and when. Entries near each other for the same species merge into one patch entry (the richest tile), and a Folk's own harvesting updates its entry. A fixed number of entries is kept; the least valuable, oldest is evicted. Deciders read them as options with an **age**: how long ago it was seen, so stale knowledge is discounted (a decider parameter sets how fast).
-- **Explored map:** a coarse grid recording when each area was last visited, used to pick where to scout.
-- **Goal:** the current goal and its path (above).
-- **Camp:** where the settlement is, to return to.
-- The whole blackboard is shown in the inspector, with the goal and path drawn on the map.
-
-**Perception:** Folk see a radius around them each step, and different things are seen from different distances (defaults: plants 1 tile, animals 3 tiles, less in forest). Anything with stock worth working updates the sightings. This replaces the 60-tile omniscient search; the shared breadth-first search stays as the pathfinder, but only toward known places.
-
-**Exploration** is an option like any other: walk toward the stalest or unexplored area nearby. It is chosen when known food is scarce, far or stale, and it is the price of finding new patches.
+- **Sight (all per-species settings):** how much of a species a tile holds is seen out to that species' `detectRange`: **plants 1 tile, animals 3 tiles** by default, and 0 means it cannot be seen from a distance. The lie of the land is seen out to `perception.terrainRange`, **10 tiles**. The ranges are parameters so they can be played with; nothing is known about places a Folk has never been near.
+- **Sightings (remembered places):** each Folk remembers up to 32 places: a species, the richest tile seen there, how much was there, and when it was last seen. Sightings of one species within 2 tiles merge into one place; the least recently seen place is replaced when memory is full; a place is forgotten when the Folk sees it has run out (a Folk far away cannot tell) or after 60,000 ticks unseen. The Folk looks around after every step and every action, so its own harvesting updates what it remembers.
+- **Explored map:** a grid of 8-tile squares recording the tick each was last in sight (terrain range). It drives exploring and is shown as fog of war.
+- **Home ground:** a new Folk already knows the ground within 16 tiles of the settlement, nearest patches first (a setting; the sweep shows Folk survive even at 0).
+- **Goal and path** as in F2. Interrupts now also include "the place ran out", noticed only when the Folk can see it.
+- **Decisions use memory, not a search of the map.** Deciders read the remembered places with an estimated walk (straight-line distance, no search) and how old each sighting is; only the chosen place gets a route (A*, checked equal to an exhaustive search). Rules go to the nearest place they still trust; utility scores each place on net calories, trusting old sightings of animals less (a decider parameter, the memory half-life).
+- **Exploring** is an option: walk to a nearby unexplored square, or one not seen for 3,000 ticks. Rules explore when nothing remembered is worth going to; utility scores it on how much nearby ground is unexplored, plus the survival bonus when it knows no food.
+- **Giving-up density** is a decider parameter (how many kg of a plant a Folk leaves before it moves on). Taking everything wins now but can wreck the patch; leaving some lets it recover. Rules and utility each have one, so a genetic algorithm can find what pays.
+- The inspector shows the selected Folk's memory (places with ages), its explored share, and draws its fog of war and remembered places on the map.
 
 ## Patchy food and overgrazing
 
@@ -91,7 +91,7 @@ Food is sparse and clumped. Built in F3:
 - Outside its patches a species holds nothing.
 - **Realistic rates.** The MVP's regrowth rates were per fast tick, so plants regrew in hours. They are now per 6-minute tick and slow: a berry patch takes days to weeks to regrow (0.0006 per tick), roots longer (0.0002), hare and deer months. The ecology runs every 10 ticks with each step covering 10 ticks.
 - **Viability and no seeding.** A plant below 2% of a tile's capacity cannot grow on its own, and there is no spontaneous seeding, so a patch grazed to nothing recovers only from neighbouring stock and, if every tile in it is below the threshold, not at all. Stock spreads between neighbouring tiles of the same patch only.
-- **Giving-up density** (how much a Folk leaves behind) is still to come with F4, when Folk choose when to leave a patch.
+- **Giving-up density** (how much a Folk leaves behind) is a decider parameter, built in F4.
 - **Animal food, the experiment: separate wins.** With `ecology.separateAnimalFood` 0, hare and deer eat the berries and roots Folk gather; with 1 they graze a grass-and-browse layer that exists only under the animals. Over 30,000 ticks on three seeds, shared animals went extinct in every setting (98 to 100% of their patch tiles emptied, 168 to 510 hunts) while separate animals thrived (1,205 to 4,106 hunts), so separate is the default. Both modes stay available.
 - **Performance:** only tiles a species lives on are updated. At 256x256 the whole simulation went from 273 to about 2,600 ticks per second; at 1024x1024 the ecology went from 60 ms to about 5 ms per tick.
 
@@ -143,5 +143,11 @@ Each ends in something to play with, followed by feedback.
 
 - **Sustainability sweep** (30,000 ticks, seeds 1 to 3, both animal-food modes, coverage 0.25x to 2x): at 1x and 2x nobody died in any run and late reserves were about 55 to 57%; at 0.5x nobody died either but reserves dipped as low as 16%; at 0.25x there were deaths, one seed with a famine of 186 deaths. **The default is therefore 1x (berries 4%, roots 3%, hare 8%, deer 2%)**, sparse but sustainable, and it can be raised from the world panel.
 - **Overgrazing is real but shows up in the animals, not the plants.** At 0.5x coverage 37% of hare patch tiles and 16% of deer patch tiles were emptied by hunting; berry and root patches stayed at 97 to 99% of capacity even after 30,000 ticks, because 20 Folk eat far less than regrows. Plant overgrazing needs more Folk, a poorer world, or slower regrowth (`plantRegrowthScale`).
-- **The food search now costs real time.** With food sparse, the nearest of every food type can be far, so each decision's walking-time search explores a large area: 100 to 350 microseconds per decision instead of about 1. That is fine at 20 Folk (about 640 ticks per second) but at 2,000 Folk the Folk phase is about 75 ms per tick. Shrinking the search budget helps only in proportion. The fix is F4: Folk consult remembered patches instead of searching the map.
+- **The omniscient food search cost real time (fixed in F4).** With food sparse, the nearest of every food type can be far, so each decision's walking-time search explores a large area: 100 to 350 microseconds per decision instead of about 1. That is fine at 20 Folk (about 640 ticks per second) but at 2,000 Folk the Folk phase is about 75 ms per tick. Shrinking the search budget helps only in proportion. F4 fixes it: Folk consult remembered patches instead of searching the map.
 - **Patch reporting:** each snapshot records how many patch tiles each species has and how many are emptied (below 5% of capacity), per terrain (`terrain_resources.csv`), in the Stats panel and in the analysis (`patches`).
+
+## F4 as built
+
+- **Survival with perception** (30,000 ticks, three seeds, separate animal food): at 1x coverage 0 to 1 deaths, late reserve 57%, about 12,900 gathers and 3,900 hunts, against about 14,000 and 3,600 for omniscient Folk; each Folk sees about 22 to 26% of the map and sets about 24 explore goals. At 0.5x coverage 1 to 2 deaths, at 0.25x 2 to 13. Folk born knowing nothing (home radius 0) also lived at 1x with 0 deaths, so home ground is a convenience, not a crutch.
+- **Speed:** decisions cost about 1.4 microseconds (they were 100 to 350 with the map search) and the Folk phase about 2 to 4 microseconds per Folk per tick. At 256x256 with 2,000 Folk the run goes at 144 ticks per second (13 before); 5,000 Folk at 55.
+- **What Folk know** (memory size and age, share of the map seen) is logged per Folk snapshot, in the Stats panel and in the analysis; discoveries and explore goals are per-Folk counters.

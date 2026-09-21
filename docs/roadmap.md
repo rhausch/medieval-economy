@@ -33,7 +33,7 @@ Planned in detail in `docs/foundation.md`.
 - [x] **F1: calories and configuration** (in review). One calorie reserve, metabolism, calorie costs for activities and injury healing, kg and kcal units, per-run configuration file recorded in the manifest, the energy ledger.
 - [x] **F2: movement and goals** (in review). Terrain and slope speed and cost, goal on the blackboard with step-by-step walking and decider-defined interrupts, path shown in the inspector. Gaits deferred.
 - [x] **F3: patchy food** (in review). Sparse clumped patches by species, realistic slow rates, viability and no seeding so grazed-out patches stay empty, the animal food experiment (separate wins), active-tile ecology updates, world panel controls, sustainability sweep.
-- [ ] **F4: perception and memory.** Sight radii, blackboard sightings with age, explored map, explore option, deciders using memory, giving-up density.
+- [x] **F4: perception and memory** (in review). Per-species detection ranges (plants 1, animals 3) and terrain range 10, blackboard sightings with age, explored map and fog-of-war view, explore option, deciders choosing among remembered places, giving-up density and memory half-life as parameters.
 - [ ] **F5: tune and evaluate.** Sweeps across seeds, rules versus utility, shared versus separate animal food, decide on a first genetic algorithm run.
 
 ## Later (candidates)

@@ -101,6 +101,8 @@ export interface StatsMessage {
   activity: ActivityRow[];
   ledger: LedgerRow[];
   travel: TravelRow[];
+  /** What Folk know, averaged over each decider's Folk. */
+  knowledge: { decider: string; places: number; meanAge: number; explored: number }[];
   sources: SourceRow[];
   consumption: ConsumptionRow[];
 }
@@ -186,6 +188,10 @@ export interface FolkDetailMessage {
       stepsLeft: number;
       path: { x: number; y: number }[];
     } | null;
+    /** The places the Folk remembers (its blackboard), with how old each sighting is. */
+    memory: { species: string; x: number; y: number; amount: number; age: number }[];
+    /** The Folk's explored map: for each square of the grid, ticks since it was last in sight, or -1 if never. */
+    explored: { cellSize: number; cols: number; rows: number; ages: number[] };
     /** What the last decision chose, and the score of each option it could pick (utility only). */
     chosen: string;
     scores: { option: string; score: number }[];

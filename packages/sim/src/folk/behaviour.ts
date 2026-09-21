@@ -29,7 +29,8 @@ import {
 import type { Perf } from '../perf';
 import type { Rng } from '../rng';
 import type { World } from '../world';
-import { climbMeters, createRouter, routeTo, search, stepTicks, type Router } from './routing';
+import { Perception, type Frontier } from './perception';
+import { climbMeters, createRouter, route, routeTo, stepTicks, type Router } from './routing';
 import { initFolk, walkableTable, type FolkStore } from './store';
 
 const ACTION = Object.fromEntries(FOLK_ACTIONS.map((name, i) => [name, i])) as Record<
@@ -68,6 +69,11 @@ export interface FolkContext {
   readonly emitGoals: boolean;
   readonly walkable: Uint8Array;
   readonly router: Router;
+  /** What Folk see and remember. */
+  readonly perception: Perception;
+  readonly frontier: Frontier;
+  /** For each ecology species, the foraging option that works it, or -1. */
+  readonly optionOfSpecies: Int32Array;
   readonly forage: readonly ForageTarget[];
   /** Calories above baseline burned per tick for each action label. */
   readonly labelCost: Float64Array;
@@ -107,6 +113,9 @@ export function createFolkContext(
     .filter(({ g }) => g.edible)
     .sort((a, b) => b.g.kcalPerKg - a.g.kcalPerKg)
     .map(({ i }) => i);
+  const walkable = walkableTable();
+  const optionOfSpecies = new Int32Array(eco.species.length).fill(-1);
+  for (const f of forage) optionOfSpecies[f.species] = f.def.option;
   return {
     world,
     eco,
@@ -118,8 +127,11 @@ export function createFolkContext(
     events,
     emitMoves,
     emitGoals,
-    walkable: walkableTable(),
+    walkable,
     router: createRouter(world, settings),
+    perception: new Perception(world, eco, store, settings, forage, walkable),
+    frontier: { tile: -1, ticks: 0, unexplored: 0 },
+    optionOfSpecies,
     forage,
     labelCost,
     edibleOrder,
@@ -137,9 +149,16 @@ export function createFolkContext(
       durationMultiplier: 1,
       params: store.params,
       paramBase: 0,
-      targetTile: new Int32Array(OPTION_COUNT),
-      targetTicks: new Float32Array(OPTION_COUNT),
-      targetKcal: new Float32Array(OPTION_COUNT),
+      memCount: 0,
+      memOption: new Int32Array(settings.perception.memorySlots),
+      memTile: new Int32Array(settings.perception.memorySlots),
+      memAmount: new Float32Array(settings.perception.memorySlots),
+      memAge: new Float32Array(settings.perception.memorySlots),
+      memTicks: new Float32Array(settings.perception.memorySlots),
+      memKcal: new Float32Array(settings.perception.memorySlots),
+      exploreTile: -1,
+      exploreTicks: 0,
+      unexplored: 0,
       settings,
     },
     intent: { option: OPTION.wander, tile: -1 },
@@ -169,29 +188,10 @@ function foodKcal(ctx: FolkContext, slot: number): number {
   return kcal;
 }
 
-/**
- * Find, for every foraging option, the place that takes the least walking time to reach and has enough of
- * the species, with the time and calories the walk costs. Folk currently know the whole map within the
- * search budget; perception limits come later.
- */
-function scanTargets(ctx: FolkContext, start: number): void {
-  const { world, settings, router, senses, eco } = ctx;
-  senses.targetTile.fill(-1);
-  senses.targetTicks.fill(0);
-  senses.targetKcal.fill(0);
-  let missing = ctx.forage.length;
-  search(world, settings, router, start, (tile, ticks, kcal) => {
-    for (const f of ctx.forage) {
-      if (senses.targetTile[f.def.option]! >= 0) continue;
-      if (eco.stock[f.species]![tile]! >= f.def.minStock) {
-        senses.targetTile[f.def.option] = tile;
-        senses.targetTicks[f.def.option] = ticks;
-        senses.targetKcal[f.def.option] = kcal;
-        missing--;
-      }
-    }
-    return missing === 0;
-  });
+/** Fill the shared senses object for one Folk: its body, and what it remembers and could explore. */
+function sense(ctx: FolkContext, slot: number, tick: number): void {
+  senseBody(ctx, slot);
+  senseMind(ctx, slot, tick);
 }
 
 function multiplier(ctx: FolkContext, slot: number): number {
@@ -267,8 +267,8 @@ function setGoal(
   }
 }
 
-/** Fill the shared senses object for one Folk. */
-function sense(ctx: FolkContext, slot: number): void {
+/** Fill the body part of the shared senses object for one Folk: reserve, injury, what it carries. */
+function senseBody(ctx: FolkContext, slot: number): void {
   const { store, senses, settings } = ctx;
   senses.x = store.x[slot]!;
   senses.y = store.y[slot]!;
@@ -282,6 +282,37 @@ function sense(ctx: FolkContext, slot: number): void {
   senses.resting = store.action[slot] === ACTION.resting;
   senses.durationMultiplier = multiplier(ctx, slot);
   senses.paramBase = slot * MAX_PARAMS;
+}
+
+/** Fill the rest: what the Folk remembers, and somewhere it could explore. */
+function senseMind(ctx: FolkContext, slot: number, tick: number): void {
+  const { store, senses, settings, world } = ctx;
+  // What it remembers, with a rough estimate of the walk to each place (straight-line, so no search is needed).
+  const slots = settings.perception.memorySlots;
+  const walkEstimate = settings.perception.walkEstimate;
+  let count = 0;
+  for (let k = 0; k < slots; k++) {
+    const at = slot * slots + k;
+    const species = store.memSpecies[at]!;
+    if (species < 0) continue;
+    const tile = store.memTile[at]!;
+    const tx = tile % world.width;
+    const ty = (tile - tx) / world.width;
+    const ticks = (Math.abs(tx - senses.x) + Math.abs(ty - senses.y)) * walkEstimate;
+    senses.memOption[count] = ctx.optionOfSpecies[species]!;
+    senses.memTile[count] = tile;
+    senses.memAmount[count] = store.memAmount[at]!;
+    senses.memAge[count] = tick - store.memSeen[at]!;
+    senses.memTicks[count] = ticks;
+    senses.memKcal[count] = ticks * settings.activity.moving;
+    count++;
+  }
+  senses.memCount = count;
+
+  ctx.perception.frontier(slot, tick, ctx.rng, ctx.frontier);
+  senses.exploreTile = ctx.frontier.tile;
+  senses.exploreTicks = ctx.frontier.ticks;
+  senses.unexplored = ctx.frontier.unexplored;
 }
 
 /** Calories one meal would add right now. */
@@ -312,27 +343,20 @@ function wander(ctx: FolkContext, slot: number, tick: number): void {
     const tile = ty * world.width + tx;
     if (tile !== here && walkable[world.terrain[tile]!]) target = tile;
   }
-  let ticks = 0;
-  if (target >= 0) {
-    search(world, settings, router, here, (tile, t) => {
-      ticks = t;
-      return tile === target;
-    });
-  }
-  if (target < 0 || router.closed[target] !== router.current) {
+  if (target < 0 || !route(world, settings, router, here, target)) {
     return begin(ctx, slot, tick, PENDING_IDLE, folk.idleTicks, false);
   }
+  const ticks = router.dist[target]!;
   setGoal(ctx, slot, tick, OPTION.wander, target, routeTo(router, target), ticks);
   continueGoal(ctx, slot, tick, false);
 }
 
 /** Ask the Folk's decider what to do and start doing it. */
 function decide(ctx: FolkContext, slot: number, tick: number): void {
-  const { store, senses, intent, world, perf, router } = ctx;
+  const { store, senses, intent, world, perf, router, settings } = ctx;
   const here = store.y[slot]! * world.width + store.x[slot]!;
   const t0 = perf?.timer();
-  scanTargets(ctx, here);
-  sense(ctx, slot);
+  sense(ctx, slot, tick);
   const t1 = perf?.timer();
   const scores = store.scores.subarray(slot * OPTION_COUNT, (slot + 1) * OPTION_COUNT);
   DECIDERS[store.decider[slot]!]!.decide(senses, intent, scores);
@@ -360,10 +384,32 @@ function decide(ctx: FolkContext, slot: number, tick: number): void {
     case OPTION.wander:
       return wander(ctx, slot, tick);
   }
-  // A foraging option: the scan just ran, so the route to the target is known.
-  const path = intent.tile === here ? null : routeTo(router, intent.tile);
-  setGoal(ctx, slot, tick, intent.option, intent.tile, path, senses.targetTicks[intent.option]!);
+  // Going somewhere: a remembered place to work, or somewhere new to look. Plan the way (A*).
+  const target = intent.tile;
+  if (target < 0) return wander(ctx, slot, tick);
+  if (target !== here && !route(world, settings, router, here, target)) {
+    // Too far or cut off: it forgets the place rather than trying again.
+    if (intent.option !== OPTION.explore) forget(ctx, slot, target);
+    return wander(ctx, slot, tick);
+  }
+  const path = target === here ? null : routeTo(router, target);
+  const ticks = target === here ? 0 : router.dist[target]!;
+  if (intent.option === OPTION.explore) count(ctx, slot, COUNTER.explores, 1);
+  setGoal(ctx, slot, tick, intent.option, target, path, ticks);
   continueGoal(ctx, slot, tick, false);
+}
+
+/** Drop a remembered place from the blackboard. */
+function forget(ctx: FolkContext, slot: number, tile: number): void {
+  const { store, settings } = ctx;
+  const slots = settings.perception.memorySlots;
+  for (let k = 0; k < slots; k++) {
+    const at = slot * slots + k;
+    if (store.memTile[at] === tile) {
+      store.memSpecies[at] = -1;
+      store.memTile[at] = -1;
+    }
+  }
 }
 
 /** The Folk gives up its goal on the way; it will decide again. */
@@ -408,13 +454,19 @@ function continueGoal(
   if (checkInterrupts) {
     // Ask the Folk's own decider whether it would rather reconsider (rate-limited so it cannot loop).
     if (tick - store.interruptedAt[slot]! >= settings.folk.interruptCooldown) {
-      sense(ctx, slot);
+      senseBody(ctx, slot);
       if (DECIDERS[store.decider[slot]!]!.shouldInterrupt(ctx.senses)) {
         return interrupt(ctx, slot, tick, 'hungry');
       }
     }
+    // The place it was heading for has run out, and the Folk can see that now (from farther off it cannot tell).
     if (target && eco.stock[target.species]![goalTile]! < target.def.minStock) {
-      return interrupt(ctx, slot, tick, 'depleted');
+      const range = eco.species[target.species]!.detectRange;
+      const gx = goalTile % world.width;
+      const gy = (goalTile - gx) / world.width;
+      if (Math.abs(gx - store.x[slot]!) <= range && Math.abs(gy - store.y[slot]!) <= range) {
+        return interrupt(ctx, slot, tick, 'depleted');
+      }
     }
   }
 
@@ -606,16 +658,20 @@ function resolve(ctx: FolkContext, slot: number, tick: number): void {
   store.pending[slot] = PENDING_NONE;
   switch (pending) {
     case PENDING_MOVE:
-      return finishStep(ctx, slot, tick);
+      finishStep(ctx, slot, tick);
+      break;
     case PENDING_IDLE:
     case OPTION.rest:
-      return;
+      break;
     case OPTION.eat:
-      return eat(ctx, slot, tick);
+      eat(ctx, slot, tick);
+      break;
     default:
       forageResult(ctx, slot, tick, pending);
       clearGoal(store, slot);
   }
+  // Look around from where it is now: new sightings, places found empty, and ground explored.
+  count(ctx, slot, COUNTER.discoveries, ctx.perception.perceive(slot, tick));
 }
 
 /**
@@ -677,6 +733,7 @@ function liveAndDie(ctx: FolkContext, slot: number, tick: number): boolean {
   ctx.metrics.folk.fill(0, slot * COUNTER_COUNT, (slot + 1) * COUNTER_COUNT);
   // The replacement keeps the dead Folk's decider (so the mix stays constant) with fresh parameters.
   const born = initFolk(store, slot, ctx.world, ctx.rng, ctx.walkable, decider, settings);
+  ctx.perception.learnArea(slot, tick, settings.perception.initialKnowledgeRadius);
   ctx.events.push({
     tick,
     type: 'spawn',

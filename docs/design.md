@@ -1,6 +1,6 @@
 # Design
 
-This document describes the MVP build. The hunter-gatherer foundation in `docs/foundation.md` is replacing parts of it milestone by milestone. **F1 (done) replaced satiety, energy and health with one calorie reserve, moved every number into a per-run configuration, and reworked the actions, injury and both deciders in calories; the stat and action descriptions below are out of date on those points.** Still to be replaced: the dense food (F3), the omniscient search and fixed 1-tile movement (F2, F4). Logging, tracking, the deciders' parameter arrays and the tooling carry over.
+This document describes the MVP build. The hunter-gatherer foundation in `docs/foundation.md` is replacing parts of it milestone by milestone. **F1 (done) replaced satiety, energy and health with one calorie reserve, moved every number into a per-run configuration, and reworked the actions, injury and both deciders in calories; the stat and action descriptions below are out of date on those points.** F2 replaced the fixed 1-tile movement (terrain, slope, goals), F3 the dense food (sparse patches), and F4 the omniscient search (perception and memory). This document's Folk, Behaviour and World sections are the MVP versions. Logging, tracking, the deciders' parameter arrays and the tooling carry over.
 
 Scope of the current layer: the base world and the entities that live in it. No seasons, weather, groups, trade or governance yet. Stack is provisional and will be revisited after this design session.
 

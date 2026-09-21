@@ -48,6 +48,19 @@ export interface FolkStore {
   readonly goalTick: Uint32Array;
   readonly goalPath: (Int32Array | null)[];
   readonly goalPos: Uint16Array;
+  /**
+   * What the Folk remembers (its blackboard): `memorySlots` places per Folk. Each is a species, a tile with
+   * enough of it, how much was there when last seen (kg or head) and the tick it was last seen.
+   * Empty slots have species -1.
+   */
+  readonly memSpecies: Int8Array;
+  readonly memTile: Int32Array;
+  readonly memAmount: Float32Array;
+  readonly memSeen: Int32Array;
+  /** The explored map: per Folk, one number per square of the grid: the tick it was last in sight, or -1. */
+  readonly seenCells: Int32Array;
+  /** How many squares each Folk has seen (so the explored share needs no counting). */
+  readonly seenCount: Uint32Array;
   /** The tick of the Folk's last interrupt, so one cannot fire again straight away. */
   readonly interruptedAt: Int32Array;
   /** count x OPTION_COUNT scores from the last decision (NaN = unavailable) and the option chosen. */
@@ -56,6 +69,17 @@ export interface FolkStore {
   /** Where Folk appear. */
   readonly settlement: { x: number; y: number };
   nextId: number;
+}
+
+/** The explored map's grid: squares of `perception.cellSize` tiles. */
+export function gridOf(
+  world: World,
+  settings: Settings,
+): { cols: number; rows: number; cells: number } {
+  const size = settings.perception.cellSize;
+  const cols = Math.ceil(world.width / size);
+  const rows = Math.ceil(world.height / size);
+  return { cols, rows, cells: cols * rows };
 }
 
 export function walkableTable(): Uint8Array {
@@ -181,6 +205,14 @@ export function initFolk(
   store.goalPath[slot] = null;
   store.goalPos[slot] = 0;
   store.interruptedAt[slot] = -1000;
+  const slots = settings.perception.memorySlots;
+  store.memSpecies.fill(-1, slot * slots, (slot + 1) * slots);
+  store.memTile.fill(-1, slot * slots, (slot + 1) * slots);
+  store.memAmount.fill(0, slot * slots, (slot + 1) * slots);
+  store.memSeen.fill(0, slot * slots, (slot + 1) * slots);
+  const cells = gridOf(world, settings).cells;
+  store.seenCells.fill(-1, slot * cells, (slot + 1) * cells);
+  store.seenCount[slot] = 0;
   store.scores.fill(Number.NaN, slot * OPTION_COUNT, (slot + 1) * OPTION_COUNT);
   store.choice[slot] = 0;
   return {
@@ -225,6 +257,12 @@ export function createFolkStore(
     goalPath: Array.from({ length: count }, () => null),
     goalPos: new Uint16Array(count),
     interruptedAt: new Int32Array(count),
+    memSpecies: new Int8Array(count * settings.perception.memorySlots).fill(-1),
+    memTile: new Int32Array(count * settings.perception.memorySlots).fill(-1),
+    memAmount: new Float32Array(count * settings.perception.memorySlots),
+    memSeen: new Int32Array(count * settings.perception.memorySlots),
+    seenCells: new Int32Array(count * gridOf(world, settings).cells).fill(-1),
+    seenCount: new Uint32Array(count),
     scores: new Float32Array(count * OPTION_COUNT),
     choice: new Uint8Array(count),
     settlement: findSettlement(world, eco, rng, settings.folk),
