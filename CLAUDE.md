@@ -8,6 +8,10 @@ Development is iterative: build a small slice, playtest with the user, record fe
 
 The MVP (six milestones) is complete. The project has pivoted to a hunter-gatherer foundation, planned in `docs/foundation.md` as milestones F1 to F5 (calories and configuration, movement and goals, patchy food, perception and memory, tuning). `docs/design.md` describes the MVP build as it is now; where it disagrees with `docs/foundation.md`, the foundation is the direction. See also `docs/roadmap.md` and `docs/decisions.md`.
 
+### Where things stand
+
+Merged: F1 to F4, solo Folk (each alone at a random place, no-replace option), and the genetic algorithm (`npm run evolve`, food coverage lowered as Folk improve). Current work: an overnight batch (`scripts/overnight.sh`) comparing rules and utility across seeds and parameter ranges. **Read "Next session" in `docs/roadmap.md` first**, then `docs/decisions.md` (bottom) for the measurements behind the choices.
+
 ## Stack
 
 TypeScript on Node 22, as a monorepo with npm workspaces:
@@ -48,6 +52,7 @@ TypeScript on Node 22, as a monorepo with npm workspaces:
 - `npm run dev`: sim server (ws://localhost:8787) and web client (http://localhost:5173)
 - `npm run sim -- --config configs/hard-times.json --seed 1 --ticks 1000`: headless run with an optional per-run configuration file (see `configs/README.md`); `CONFIG=path` does the same for the server. `npm run config:default` regenerates `configs/default.json` after a default changes that writes a log to `experiments/output/<run-id>/`; options `--folk N`, `--size N`, `--regrowth X` (plant regrowth scale), `--coverage X` (food patch coverage multiplier), `--separate-animal-food` / `--no-separate-animal-food`, `--deciders rules,utility`, `--spawn random|settlement` (solo at random places on the main landmass, the default, or around one settlement), `--replace` / `--no-replace` (replace the dead, the default, or leave them dead for survival tests), `--snapshot-interval N`, `--metrics-interval N`, `--moves` (log every step), `--goals` (log every goal), `--no-log`
 - `npm run evolve -- --decider utility --folk 400 --size 512 --ticks 50000 --generations 100`: genetic algorithm over a decider's parameter array (solo Folk, no respawn, food coverage lowered as they improve); writes `experiments/output/<stamp>-evolve-<decider>/` (`generations.csv`, `best.json`, `checkpoint.json`, `manifest.json`); `--resume <dir>` continues. `python3 scripts/analyze_evolution.py [dir]` plots it
+- `scripts/overnight.sh`: a batch of genetic algorithm runs (deciders x parameter spaces x seeds, in parallel; see the header for settings such as `SEEDS`, `GENERATIONS`, `PARALLEL`, `BATCH`); safe to stop and rerun with the same `BATCH` to resume. `python3 scripts/compare_evolution.py [batch_dir]` summarises it. Run it in its own console, not through Claude Code
 - `npm run bench -- --folk 20,100,500,2000 --deciders rules,utility,mixed --size 256 --ticks 300`: benchmark; prints ticks/s, ms per tick split into ecology and Folk, decisions per tick and decision-time percentiles, and saves JSON to `experiments/output/`
 - `python3 scripts/summarize_run.py [run_dir]`: quick text summary of a run (standard library only; defaults to the newest)
 - `python3 scripts/analyze_run.py [run_dir]`: pandas and matplotlib analysis; prints the key tables and writes plots to `<run>/analysis/`. `notebooks/analyze_run.ipynb` is the same analysis for Jupyter. Needs `pip install pandas matplotlib`.
