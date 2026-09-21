@@ -58,6 +58,8 @@
     "interruptCooldown": 10,
     "restTicks": 3,
     "spawnRadius": 5,
+    "spawnRandom": 1,
+    "replaceDead": 1,
     "settlementCandidates": 60,
     "settlementScoreRadius": 6,
     "settlementWaterDistance": 4,

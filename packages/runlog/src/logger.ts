@@ -143,6 +143,8 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
     })),
     emitMoves: sim.config.emitMoves ?? false,
     emitGoals: sim.config.emitGoals ?? false,
+    /** Folk alive when the run began. */
+    folkAtStart: sim.aliveCount(),
     snapshotInterval,
     metricsInterval,
     timed: sim.perf !== null,
@@ -182,7 +184,7 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
   const lifetimes = new Buffered(
     join(dir, 'lifetimes.csv'),
     [
-      'id,decider,born,died,cause,lived,startReserve,endReserve',
+      'id,decider,born,died,cause,lived,startReserve,endReserve,spawnX,spawnY,spawnTerrain',
       ...COUNTER_NAMES,
       ...Array.from({ length: MAX_PARAMS }, (_, i) => `p${i}`),
     ].join(','),
@@ -190,13 +192,22 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
   /** Who each Folk is, from its spawn event, for the lifetime table. */
   const born = new Map<
     number,
-    { decider: string; tick: number; reserve: number; params: number[] }
+    {
+      decider: string;
+      tick: number;
+      reserve: number;
+      params: number[];
+      x: number;
+      y: number;
+      terrain: string;
+    }
   >();
 
   const writeEntities = (tick: number): void => {
     const f = sim.folk;
     const perGood = GOODS_LIST.length;
     for (let s = 0; s < f.count; s++) {
+      if (!f.alive[s]) continue;
       const inv = GOODS_LIST.map((_, g) => f.inventory[s * perGood + g]!.toFixed(3)).join(',');
       const knowledge = knowledgeOf(f, sim.world, sim.settings, s, tick);
       entities.write(
@@ -259,6 +270,9 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
         lived,
         who ? who.reserve.toFixed(1) : '',
         endReserve.toFixed(1),
+        who?.x ?? '',
+        who?.y ?? '',
+        who?.terrain ?? '',
         ...COUNTER_NAMES.map((n) => counters[n] ?? 0),
         ...params,
       ].join(',')}\n`,
@@ -267,7 +281,15 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
   const note = (e: SimEvent): void => {
     events.write(JSON.stringify(e) + '\n');
     if (e.type === 'spawn') {
-      born.set(e.folk, { decider: e.decider, tick: e.tick, reserve: e.reserve, params: e.params });
+      born.set(e.folk, {
+        decider: e.decider,
+        tick: e.tick,
+        reserve: e.reserve,
+        params: e.params,
+        x: e.x,
+        y: e.y,
+        terrain: e.terrain,
+      });
     } else if (e.type === 'die') {
       writeLifetime(e.folk, e.stats, e.lived, 0, String(e.tick), e.cause);
     }
@@ -297,6 +319,8 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
       }
       if (s.tick % metricsInterval !== 0) writeMetrics(s.tick);
       for (let slot = 0; slot < s.folk.count; slot++) {
+        // A Folk that died was written when it died.
+        if (!s.folk.alive[slot]) continue;
         writeLifetime(
           s.folk.id[slot]!,
           folkCounters(s.metrics, slot),

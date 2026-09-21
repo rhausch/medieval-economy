@@ -83,7 +83,15 @@ export interface Settings {
     /** Ticks after an interrupt before another can fire (each decider decides when it wants one). */
     interruptCooldown: number;
     restTicks: number;
+    /** How far around the settlement Folk appear when they spawn together. */
     spawnRadius: number;
+    /**
+     * 1: every Folk (and every replacement) appears alone at its own random place on the main landmass, so it
+     * lives or dies on its own; 0: they all appear around one settlement.
+     */
+    spawnRandom: number;
+    /** 1: a Folk that dies is replaced, so the population stays constant; 0: it stays dead. */
+    replaceDead: number;
     settlementCandidates: number;
     settlementScoreRadius: number;
     settlementWaterDistance: number;
@@ -165,6 +173,8 @@ export function defaultSettings(): Settings {
       interruptCooldown: 10,
       restTicks: 3,
       spawnRadius: 5,
+      spawnRandom: 1,
+      replaceDead: 1,
       settlementCandidates: 60,
       settlementScoreRadius: 6,
       settlementWaterDistance: 4,
@@ -332,6 +342,11 @@ function validate(settings: Settings): void {
   const { min, max } = settings.body.startReserveFraction;
   if (!(min > 0 && max >= min && max <= 1)) {
     throw new ConfigError('body.startReserveFraction needs 0 < min <= max <= 1');
+  }
+  for (const key of ['spawnRandom', 'replaceDead'] as const) {
+    if (settings.folk[key] !== 0 && settings.folk[key] !== 1) {
+      throw new ConfigError(`folk.${key} must be 0 or 1`);
+    }
   }
   if (!(Number.isInteger(settings.folk.count) && settings.folk.count >= 1)) {
     throw new ConfigError('folk.count must be a whole number of at least 1');

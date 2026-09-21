@@ -201,3 +201,20 @@ All costs, yields, speeds, densities and ranges live in a configuration file loa
 - **Home ground.** A new Folk knows 16 tiles around the settlement. A sweep showed Folk survive even with none, so it is a setting rather than a requirement.
 - **Giving-up density and memory half-life are decider parameters**, so leaving a patch to recover, and how far to trust an old sighting of game, can be tuned or evolved. Utility now has 11 parameters and rules 6 (the array limit is 12).
 - **Nothing is known that has not been seen.** Interrupts for a place running out fire only when the Folk can see it. "Something better was sighted" as an interrupt is left for later.
+
+## 2026-09-20: Solo Folk
+
+- **Each Folk starts alone at a random place on the main landmass** (`folk.spawnRandom`, default 1), knowing only the 16 tiles around where it stands, so survival can be tested before cooperation. `spawnRandom: 0` brings back the single settlement. Replacements also appear at random places.
+- **Replacement is optional** (`folk.replaceDead`, default 1). With 0 the dead stay dead, are not listed in snapshots, and each gets one row in `lifetimes.csv` (with spawn position and terrain) so survival curves are clean. `scripts/analyze_run.py` reports Kaplan-Meier survival, deaths by cause and by spawn terrain.
+- **Result** (100 solo Folk per run, no replacement, 30,000 ticks, 3 seeds, 150 Folk per decider per row), share surviving:
+
+  | coverage / home knowledge | rules | utility |
+  | ------------------------- | ----- | ------- |
+  | 1x / 16                   | 100%  | 99%     |
+  | 1x / 0                    | 100%  | 99%     |
+  | 0.5x / 16                 | 100%  | 88%     |
+  | 0.5x / 0                  | 99%   | 86%     |
+  | 0.25x / 16                | 94%   | 47%     |
+  | 0.25x / 0                 | 83%   | 43%     |
+
+  Solo survival is easy at default food. When food is scarce the rules decider is far more robust than the utility one (at 0.25x, 34 to 45 of 150 utility Folk die before tick 3000), and home knowledge matters for rules at low food. This gives the genetic algorithm a clear target: the utility parameters, scored on solo survival at low coverage.

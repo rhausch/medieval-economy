@@ -151,3 +151,7 @@ Each ends in something to play with, followed by feedback.
 - **Survival with perception** (30,000 ticks, three seeds, separate animal food): at 1x coverage 0 to 1 deaths, late reserve 57%, about 12,900 gathers and 3,900 hunts, against about 14,000 and 3,600 for omniscient Folk; each Folk sees about 22 to 26% of the map and sets about 24 explore goals. At 0.5x coverage 1 to 2 deaths, at 0.25x 2 to 13. Folk born knowing nothing (home radius 0) also lived at 1x with 0 deaths, so home ground is a convenience, not a crutch.
 - **Speed:** decisions cost about 1.4 microseconds (they were 100 to 350 with the map search) and the Folk phase about 2 to 4 microseconds per Folk per tick. At 256x256 with 2,000 Folk the run goes at 144 ticks per second (13 before); 5,000 Folk at 55.
 - **What Folk know** (memory size and age, share of the map seen) is logged per Folk snapshot, in the Stats panel and in the analysis; discoveries and explore goals are per-Folk counters.
+
+## Solo as built
+
+Folk spawn alone at random places on the main landmass (the largest connected walkable region), each knowing only its own surroundings. `folk.replaceDead: 0` turns off replacement so a run measures how long each Folk survives. Try it: `npm run sim -- --folk 100 --ticks 30000 --no-replace --coverage 0.25`, then `python3 scripts/analyze_run.py` (survival section). Results are in `decisions.md`.

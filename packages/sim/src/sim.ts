@@ -27,6 +27,10 @@ export interface SimConfig {
   separateAnimalFood?: boolean;
   /** Decider keys handed out to Folk in turn. */
   deciders?: string[];
+  /** Folk appear alone at random places (true) or together at the settlement (false). */
+  spawnRandom?: boolean;
+  /** A Folk that dies is replaced (true) or stays dead (false). */
+  replaceDead?: boolean;
   /** Also emit a `move` event for every step (verbose; off by default). */
   emitMoves?: boolean;
   /** Also emit a `goal` event whenever a Folk sets out for somewhere (off by default). */
@@ -47,6 +51,8 @@ export interface Sim {
   readonly metrics: Metrics;
   /** Timing statistics, or null when no timer was given. */
   readonly perf: Perf | null;
+  /** Folk still alive (all of them, unless they are not replaced when they die). */
+  aliveCount(): number;
   /** Number of completed ticks. */
   readonly tick: number;
   /** Return and clear the events produced since the last call. */
@@ -67,6 +73,10 @@ export function createSim(config: SimConfig): Sim {
       ...base.folk,
       count: config.folkCount ?? base.folk.count,
       deciders: config.deciders ?? base.folk.deciders,
+      spawnRandom:
+        config.spawnRandom === undefined ? base.folk.spawnRandom : config.spawnRandom ? 1 : 0,
+      replaceDead:
+        config.replaceDead === undefined ? base.folk.replaceDead : config.replaceDead ? 1 : 0,
     },
     ecology: {
       ...base.ecology,
@@ -112,6 +122,7 @@ export function createSim(config: SimConfig): Sim {
       decider: born.decider,
       params: born.params,
       reserve: born.reserve,
+      terrain: born.terrain,
     });
   }
   const metrics = createMetrics(folk.count);
@@ -144,6 +155,11 @@ export function createSim(config: SimConfig): Sim {
     perf,
     get tick() {
       return tick;
+    },
+    aliveCount() {
+      let n = 0;
+      for (let slot = 0; slot < folk.count; slot++) n += folk.alive[slot]!;
+      return n;
     },
     look(slot) {
       return folkContext.perception.perceive(slot, tick);

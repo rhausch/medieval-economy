@@ -25,6 +25,8 @@ const { values } = parseArgs({
     'metrics-interval': { type: 'string', default: '100' },
     moves: { type: 'boolean', default: false },
     goals: { type: 'boolean', default: false },
+    spawn: { type: 'string' },
+    replace: { type: 'boolean' },
     log: { type: 'boolean', default: true },
   },
 });
@@ -52,6 +54,8 @@ const sim = createSim({
   ...(values.deciders ? { deciders: values.deciders.split(',') } : {}),
   emitMoves: values.moves,
   emitGoals: values.goals,
+  ...(values.spawn !== undefined ? { spawnRandom: values.spawn === 'random' } : {}),
+  ...(values.replace !== undefined ? { replaceDead: values.replace } : {}),
   timer: () => performance.now(),
 });
 
@@ -84,7 +88,7 @@ const kcal = (category: string): number =>
 const activity = activityRows(sim.metrics).reduce((sum, r) => sum + r.kcal, 0);
 
 console.log(
-  `seed=${seed} ticks=${sim.tick} folk=${sim.folk.count} elapsed=${ms.toFixed(0)}ms${values.config ? ` config=${values.config}` : ''}`,
+  `seed=${seed} ticks=${sim.tick} folk=${sim.aliveCount()}/${sim.folk.count} alive elapsed=${ms.toFixed(0)}ms${values.config ? ` config=${values.config}` : ''}`,
 );
 console.log(`events: ${JSON.stringify(counts)}`);
 console.log(

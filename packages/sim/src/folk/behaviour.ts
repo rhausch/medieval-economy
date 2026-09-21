@@ -731,6 +731,14 @@ function liveAndDie(ctx: FolkContext, slot: number, tick: number): boolean {
     stats: folkCounters(ctx.metrics, slot),
   });
   ctx.metrics.folk.fill(0, slot * COUNTER_COUNT, (slot + 1) * COUNTER_COUNT);
+  if (settings.folk.replaceDead !== 1) {
+    // Not replaced: the Folk stays dead in its slot, out of the world and carrying nothing.
+    store.alive[slot] = 0;
+    store.inventory.fill(0, slot * settings.goods.length, (slot + 1) * settings.goods.length);
+    store.pending[slot] = PENDING_NONE;
+    clearGoal(store, slot);
+    return true;
+  }
   // The replacement keeps the dead Folk's decider (so the mix stays constant) with fresh parameters.
   const born = initFolk(store, slot, ctx.world, ctx.rng, ctx.walkable, decider, settings);
   ctx.perception.learnArea(slot, tick, settings.perception.initialKnowledgeRadius);
@@ -744,6 +752,7 @@ function liveAndDie(ctx: FolkContext, slot: number, tick: number): boolean {
     decider: born.decider,
     params: born.params,
     reserve: born.reserve,
+    terrain: born.terrain,
   });
   return true;
 }
@@ -752,6 +761,7 @@ function liveAndDie(ctx: FolkContext, slot: number, tick: number): boolean {
 export function stepFolk(ctx: FolkContext, tick: number): void {
   const { store } = ctx;
   for (let slot = 0; slot < store.count; slot++) {
+    if (!store.alive[slot]) continue;
     if (liveAndDie(ctx, slot, tick)) continue;
     if (tick >= store.readyAt[slot]!) {
       if (store.pending[slot] !== PENDING_NONE) resolve(ctx, slot, tick);

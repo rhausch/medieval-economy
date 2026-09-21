@@ -135,7 +135,9 @@ function folkMessage(): ServerMessage {
   return {
     type: 'folk',
     tick: sim.tick,
-    folk: Array.from({ length: sim.folk.count }, (_, slot) => folkInfo(slot)),
+    folk: Array.from({ length: sim.folk.count }, (_, slot) => slot)
+      .filter((slot) => sim.folk.alive[slot] === 1)
+      .map((slot) => folkInfo(slot)),
   };
 }
 
@@ -205,7 +207,7 @@ function sendFolkDetail(socket: WebSocket, id: number): void {
   const f = sim.folk;
   const slot = f.id.indexOf(id);
   const events = recentEvents.get(id) ?? [];
-  if (slot < 0) {
+  if (slot < 0 || !f.alive[slot]) {
     socket.send(
       JSON.stringify({ type: 'folkDetail', id, found: false, events } satisfies ServerMessage),
     );
@@ -292,7 +294,7 @@ function knowledgeStats(): StatsMessage['knowledge'] {
     let explored = 0;
     let n = 0;
     for (let slot = 0; slot < f.count; slot++) {
-      if (f.decider[slot] !== index) continue;
+      if (f.decider[slot] !== index || !f.alive[slot]) continue;
       const k = knowledgeOf(f, sim.world, sim.settings, slot, sim.tick);
       places += k.places;
       age += k.meanAge;
