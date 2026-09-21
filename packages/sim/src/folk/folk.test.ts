@@ -74,7 +74,8 @@ function senses(
     params,
     paramBase: 0,
     targetTile: new Int32Array(OPTION_COUNT).fill(-1),
-    targetDist: new Int32Array(OPTION_COUNT),
+    targetTicks: new Float32Array(OPTION_COUNT),
+    targetKcal: new Float32Array(OPTION_COUNT),
     settings,
     ...over,
   };
@@ -219,7 +220,7 @@ describe('calories', () => {
     sim.folk.inventory[meat] = 5;
     sim.step();
     const ticks = Math.ceil(settings.body.mealKcal / settings.body.maxIntakeKcalPerTick);
-    expect(sim.folk.busyUntil[0]).toBe(1 + ticks);
+    expect(sim.folk.readyAt[0]).toBe(1 + ticks);
     const events = run(sim, ticks);
     const meal = events.find((e) => e.type === 'eat');
     expect(meal).toBeDefined();

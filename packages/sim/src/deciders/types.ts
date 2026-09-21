@@ -30,9 +30,13 @@ export interface Senses {
   /** This Folk's decider parameters (read with `param`). */
   params: Float32Array;
   paramBase: number;
-  /** Per option: tile of the nearest place the option can be done, or -1; and walking distance. */
+  /**
+   * Per option: tile of the nearest place (by walking time) the option can be done, or -1; the ticks the
+   * walk takes for an uninjured Folk; and the calories it burns walking there and climbing.
+   */
   targetTile: Int32Array;
-  targetDist: Int32Array;
+  targetTicks: Float32Array;
+  targetKcal: Float32Array;
   /** The run's configuration: action costs and yields, goods, body. */
   settings: Settings;
 }
@@ -61,6 +65,12 @@ export interface DeciderDef {
   /** Default parameter ranges; a run's configuration may change the min and max. */
   readonly params: readonly ParamSpec[];
   decide(senses: Senses, out: Intent, scores: Float32Array): void;
+  /**
+   * Asked between the steps of a goal: would this Folk want to reconsider what it is doing right now?
+   * Returning true drops the goal and runs `decide` again. It should mean "I would choose something
+   * different", such as stopping to eat, so that interrupts lead somewhere.
+   */
+  shouldInterrupt(senses: Senses): boolean;
 }
 
 /** Most parameters any decider may have. */

@@ -10,6 +10,8 @@ import {
   DECIDERS,
   INJURY_NAMES,
   ledgerRows,
+  travelRows,
+  PENDING_NONE,
   folkCounters,
   type Settings,
   OPTION_COUNT,
@@ -23,7 +25,14 @@ import {
   type Sim,
   type WorldParams,
 } from '@folk/sim';
-import type { ClientMessage, FolkInfo, ServerMessage, StatsMessage, TimingInfo } from './protocol';
+import type {
+  ClientMessage,
+  FolkDetailMessage,
+  FolkInfo,
+  ServerMessage,
+  StatsMessage,
+  TimingInfo,
+} from './protocol';
 
 const PORT = Number(process.env.PORT ?? 8787);
 const TICK_MS = 100;
@@ -117,6 +126,26 @@ function folkMessage(): ServerMessage {
   };
 }
 
+/** The goal on a Folk's blackboard with the rest of its path (capped, so a long walk stays a small message). */
+function goalInfo(slot: number): NonNullable<FolkDetailMessage['folk']>['goal'] {
+  const f = sim.folk;
+  const option = f.goal[slot]!;
+  if (option === PENDING_NONE) return null;
+  const width = sim.world.width;
+  const target = f.goalTile[slot]!;
+  const path = f.goalPath[slot];
+  const from = f.goalPos[slot]!;
+  const left = path ? Array.from(path.subarray(from, from + 300)) : [];
+  return {
+    option: OPTION_NAMES[option] ?? 'wander',
+    targetX: target % width,
+    targetY: Math.floor(target / width),
+    age: sim.tick - f.goalTick[slot]!,
+    stepsLeft: path ? path.length - from : 0,
+    path: left.map((t) => ({ x: t % width, y: Math.floor(t / width) })),
+  };
+}
+
 /** Which foraging action key each work label in FOLK_ACTIONS comes from. */
 const ACTION_FOR_LABEL: Record<string, string> = {
   gathering: 'gather',
@@ -176,6 +205,7 @@ function sendFolkDetail(socket: WebSocket, id: number): void {
       })),
       injuryName: INJURY_NAMES[level] ?? 'none',
       injuryRemaining: f.injury[slot]! > 0 ? Math.max(0, f.injuryTimer[slot]!) : 0,
+      goal: goalInfo(slot),
       chosen: OPTION_NAMES[f.choice[slot]!] ?? 'wander',
       scores: OPTION_NAMES.map((option, k) => ({
         option,
@@ -260,6 +290,7 @@ function buildStats(): StatsMessage {
     carried: carriedTotals(sim.folk),
     activity: activityRows(sim.metrics),
     ledger: ledgerRows(sim.metrics),
+    travel: travelRows(sim.metrics),
     sources: sourceRows(sim.metrics),
     consumption: consumptionRows(sim.metrics),
   };

@@ -94,6 +94,7 @@ export function createStatsView(root: HTMLElement): StatsView {
     ['perf', 'Performance', true],
     ['food', 'Food by terrain', true],
     ['time', 'Time by action', false],
+    ['walking', 'Walking by terrain', false],
     ['energy', 'Calories in and out', false],
     ['sources', 'Where calories come from', false],
   ] as const) {
@@ -236,6 +237,38 @@ export function createStatsView(root: HTMLElement): StatsView {
     return box;
   }
 
+  /** Steps taken on each terrain, how long they took (1 is a tile a tick) and what they cost. */
+  function walking(msg: StatsMessage): void {
+    const byTerrain = new Map<string, { steps: number; ticks: number; kcal: number }>();
+    for (const r of msg.travel) {
+      const t = byTerrain.get(r.terrain) ?? { steps: 0, ticks: 0, kcal: 0 };
+      t.steps += r.steps;
+      t.ticks += r.ticks;
+      t.kcal += r.kcal;
+      byTerrain.set(r.terrain, t);
+    }
+    const total = [...byTerrain.values()].reduce((sum, t) => sum + t.steps, 0);
+    const rows = [...byTerrain.entries()]
+      .sort((a, b) => b[1].steps - a[1].steps)
+      .map(([terrain, t]) => [
+        terrain,
+        percent(total > 0 ? t.steps / total : 0),
+        (t.ticks / t.steps).toFixed(2),
+        (t.kcal / t.steps).toFixed(1),
+      ]);
+    set(
+      'walking',
+      rows.length > 0
+        ? table(['', 'of steps', 'ticks/step', 'kcal/step'], rows)
+        : 'No walking yet.',
+      el(
+        'div',
+        'muted small',
+        'Ticks per step: 1 is a tile per tick; higher is slower ground or slope.',
+      ),
+    );
+  }
+
   function sources(msg: StatsMessage): void {
     const box = el('div');
     for (const d of deciders) {
@@ -286,6 +319,7 @@ export function createStatsView(root: HTMLElement): StatsView {
       perf(msg);
       food(msg);
       set('time', timeByAction(msg));
+      walking(msg);
       set('energy', calories(msg));
       sources(msg);
     },

@@ -29,16 +29,27 @@ export interface FolkStore {
   /** 0 none, 1 minor, 2 serious; and ticks until it heals one level. */
   readonly injury: Uint8Array;
   readonly injuryTimer: Float32Array;
-  /** The Folk is busy until this tick; `pending` is what it is doing (PENDING_NONE when free). */
-  readonly busyUntil: Uint32Array;
+  /**
+   * The Folk is busy until this time (in ticks, fractional); `pending` is what it is doing
+   * (PENDING_NONE when free). A walking step over slow ground takes more than one tick, and the
+   * fraction carries into the next action so speed is not lost to rounding.
+   */
+  readonly readyAt: Float64Array;
   readonly pending: Uint8Array;
   readonly pendingTile: Int32Array;
-  /** The option and target tile it is working toward (PENDING_NONE / -1 when it has none). */
-  readonly intent: Uint8Array;
-  readonly intentTile: Int32Array;
-  /** Walk to the intent tile: tiles still to step on, and how far along. */
-  readonly paths: (Int32Array | null)[];
-  readonly pathPos: Uint16Array;
+  /** How long the current step takes, in ticks, including any injury slowdown. */
+  readonly pendingTicks: Float32Array;
+  /**
+   * The Folk's goal, kept on its blackboard: the option it is pursuing (PENDING_NONE when it has none),
+   * where, when it was chosen, and the path still to walk with how far along it is.
+   */
+  readonly goal: Uint8Array;
+  readonly goalTile: Int32Array;
+  readonly goalTick: Uint32Array;
+  readonly goalPath: (Int32Array | null)[];
+  readonly goalPos: Uint16Array;
+  /** The tick of the Folk's last interrupt, so one cannot fire again straight away. */
+  readonly interruptedAt: Int32Array;
   /** count x OPTION_COUNT scores from the last decision (NaN = unavailable) and the option chosen. */
   readonly scores: Float32Array;
   readonly choice: Uint8Array;
@@ -160,13 +171,16 @@ export function initFolk(
   });
   store.injury[slot] = 0;
   store.injuryTimer[slot] = 0;
-  store.busyUntil[slot] = 0;
+  store.readyAt[slot] = 0;
   store.pending[slot] = PENDING_NONE;
   store.pendingTile[slot] = -1;
-  store.intent[slot] = PENDING_NONE;
-  store.intentTile[slot] = -1;
-  store.paths[slot] = null;
-  store.pathPos[slot] = 0;
+  store.pendingTicks[slot] = 0;
+  store.goal[slot] = PENDING_NONE;
+  store.goalTile[slot] = -1;
+  store.goalTick[slot] = 0;
+  store.goalPath[slot] = null;
+  store.goalPos[slot] = 0;
+  store.interruptedAt[slot] = -1000;
   store.scores.fill(Number.NaN, slot * OPTION_COUNT, (slot + 1) * OPTION_COUNT);
   store.choice[slot] = 0;
   return {
@@ -201,13 +215,16 @@ export function createFolkStore(
     params: new Float32Array(count * MAX_PARAMS),
     injury: new Uint8Array(count),
     injuryTimer: new Float32Array(count),
-    busyUntil: new Uint32Array(count),
+    readyAt: new Float64Array(count),
     pending: new Uint8Array(count),
     pendingTile: new Int32Array(count),
-    intent: new Uint8Array(count),
-    intentTile: new Int32Array(count),
-    paths: Array.from({ length: count }, () => null),
-    pathPos: new Uint16Array(count),
+    pendingTicks: new Float32Array(count),
+    goal: new Uint8Array(count),
+    goalTile: new Int32Array(count),
+    goalTick: new Uint32Array(count),
+    goalPath: Array.from({ length: count }, () => null),
+    goalPos: new Uint16Array(count),
+    interruptedAt: new Int32Array(count),
     scores: new Float32Array(count * OPTION_COUNT),
     choice: new Uint8Array(count),
     settlement: findSettlement(world, eco, rng, settings.folk),

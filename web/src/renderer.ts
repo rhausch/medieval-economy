@@ -15,6 +15,13 @@ const FOLK_MIN_TILES = 0.6;
 /** How close (in screen pixels) a click must be to a Folk to select it. */
 const FOLK_PICK_PX = 9;
 
+/** What the selected Folk is heading for, drawn on the map. */
+export interface GoalView {
+  path: { x: number; y: number }[];
+  targetX: number;
+  targetY: number;
+}
+
 interface Selected {
   x: number;
   y: number;
@@ -54,6 +61,7 @@ export class WorldView {
   private readonly markers = new Container();
   private readonly grid = new Graphics();
   private readonly highlight = new Graphics();
+  private readonly pathLayer = new Graphics();
   private readonly folkLayer = new Container();
   private readonly markerPool: Sprite[] = [];
   private readonly folkPool: Sprite[] = [];
@@ -65,6 +73,7 @@ export class WorldView {
   private folkTex: Texture | null = null;
   private folk: FolkInfo[] = [];
   private selectedFolk: number | null = null;
+  private goal: GoalView | null = null;
   private width = 0;
   private height = 0;
   private zoom = 4;
@@ -88,7 +97,7 @@ export class WorldView {
     });
     host.appendChild(this.app.canvas);
     this.app.stage.addChild(this.stage);
-    this.stage.addChild(this.markers, this.grid, this.folkLayer, this.highlight);
+    this.stage.addChild(this.markers, this.grid, this.pathLayer, this.folkLayer, this.highlight);
     this.circle = circleTexture();
     this.folkTex = folkTexture();
     this.bindInput(this.app.canvas);
@@ -167,6 +176,12 @@ export class WorldView {
     this.folk = folk;
     this.updateFolk();
     if (this.selectedFolk !== null) this.redrawHighlight();
+  }
+
+  /** Draw the selected Folk's goal: the path it still has to walk and the place it is heading for. */
+  setGoal(goal: GoalView | null): void {
+    this.goal = goal;
+    this.redrawPath();
   }
 
   setSelectedFolk(id: number | null): void {
@@ -317,6 +332,23 @@ export class WorldView {
     for (let i = this.folk.length; i < this.folkPool.length; i++) this.folkPool[i]!.visible = false;
   }
 
+  private redrawPath(): void {
+    this.pathLayer.clear();
+    const goal = this.goal;
+    if (!goal) return;
+    const z = this.zoom;
+    const from = this.folk.find((f) => f.id === this.selectedFolk);
+    const points = [...(from ? [{ x: from.x, y: from.y }] : []), ...goal.path];
+    if (points.length > 1) {
+      this.pathLayer.moveTo(points[0]!.x + 0.5, points[0]!.y + 0.5);
+      for (const p of points.slice(1)) this.pathLayer.lineTo(p.x + 0.5, p.y + 0.5);
+      this.pathLayer.stroke({ width: Math.max(2.5 / z, 0.08), color: 0xffffff, alpha: 0.9 });
+    }
+    this.pathLayer
+      .circle(goal.targetX + 0.5, goal.targetY + 0.5, Math.max(6 / z, 0.4))
+      .stroke({ width: Math.max(2 / z, 0.06), color: 0xffffff, alpha: 1 });
+  }
+
   private redrawHighlight(): void {
     const z = this.zoom;
     this.highlight.clear();
@@ -395,6 +427,7 @@ export class WorldView {
 
     this.updateFolk();
     this.redrawHighlight();
+    this.redrawPath();
     this.redrawMarkers();
   }
 }

@@ -173,3 +173,11 @@ All costs, yields, speeds, densities and ranges live in a configuration file loa
 - The old `hungerScale` setting is gone: metabolism is `body.baselineKcalPerTick` in the configuration.
 - The utility decider needed two guarantees found by trace: eating must win in an emergency, and a hungry Folk short of food must forage, regardless of its random personality; before them, low-yield-weight, high-wander-weight Folk wandered until they starved. A regression test runs five seeds and requires no starvation in a food-rich world.
 - Known consequence of realistic calories: utility Folk favour snaring hare over gathering, and a deer kill is wasted beyond the 20 kg they can carry. Both are for F3 (sparse food) and later (sharing, storage, group hunting) to resolve.
+
+## 2026-09-20: F2 built: movement and goals (gaits dropped)
+
+- **No gaits.** The user was unsure jogging and running would add anything, so Folk walk at one speed; terrain and slope change how fast and how much it costs. Revisit only if big-game hunting needs sprints.
+- **Walking time, not tiles.** Routes and "nearest food" use a walking-time search over terrain speed and slope; the cost per tick of walking makes slow ground cost more per tile without a separate multiplier; climbing adds 0.65 kcal per metre.
+- **Goal on the blackboard, walked step by step** (as decided earlier), with fractional step times whose remainder carries forward so speed is exact.
+- **Decider-defined interrupts (option B).** Each decider says when it would rather reconsider. The first version (a global 30% reserve threshold) interrupted Folk that had chosen to eat late, and a utility Folk interrupted without then choosing differently. Now `shouldInterrupt` implies `decide` picks eating, tested over random senses; the utility emergency score was raised so eating outranks everything in an emergency. A cooldown stops loops. The global `interruptReserve` setting was removed.
+- **Wandering is a goal** (a stroll of up to 6 tiles, or standing still for 4 ticks), cutting decisions from about 0.9 to about 0.16 per Folk per tick.

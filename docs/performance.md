@@ -38,3 +38,7 @@ The two tables were measured in separate processes that overlapped in time; re-r
 - A decider's own `decide()` is below the timer's resolution floor (about 1.2 us) at the median and 99th percentile; the shared search for work has a p95 of 3 to 13 us. Tails of hundreds of microseconds are rare and most likely garbage collection.
 - Real time (10 ticks/s) is comfortable everywhere measured. The first limit to hit will be the ecology on very large worlds; `ecologyInterval` (run it every N ticks) is the lever, or moving its update to a worker thread or the GPU.
 - Not yet measured: heavier deciders (planning), perception and memory, and the cost of streaming resources to the client at 1M tiles.
+
+## After F2 (movement and goals)
+
+Mixed deciders, 256x256, 200 ticks: 20 Folk 273 ticks/s, 500 Folk 238, 2000 Folk 171, 5000 Folk 113 (the tables above were measured before F1 and F2). Decisions per tick fell about fourfold (5000 Folk: 858 against 3,247) because Folk walk and stroll toward goals instead of deciding every tick, which more than paid for the costlier walking-time search (search p95 up from about 3 microseconds to a few tens). The ecology (about 3.7 ms per tick) remains the cost that does not scale with Folk.

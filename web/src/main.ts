@@ -230,6 +230,10 @@ function describeEvent(e: FolkDetailMessage['events'][number]): string {
       return `${at} died of ${e.cause}`;
     case 'move':
       return `${at} moved to ${e.x}, ${e.y}`;
+    case 'goal':
+      return `${at} set out to ${e.option} at ${e.targetX}, ${e.targetY} (about ${e.ticks.toFixed(0)} ticks away)`;
+    case 'interrupt':
+      return `${at} stopped ${e.option === 'wander' ? 'strolling' : `on the way to ${e.option}`}: ${e.reason === 'hungry' ? 'time to eat' : 'the place ran out'}`;
   }
 }
 
@@ -240,10 +244,18 @@ function showFolk(msg: FolkDetailMessage): void {
     if (selectedFolk === msg.id) {
       selectedFolk = null;
       view.setSelectedFolk(null);
+      view.setGoal(null);
     }
     return;
   }
   const f = msg.folk;
+  view.setGoal(f.goal);
+  const goalLine = document.createElement('div');
+  goalLine.className = 'muted';
+  goalLine.style.margin = '4px 0';
+  goalLine.textContent = f.goal
+    ? `Goal: ${f.goal.option} at ${f.goal.targetX}, ${f.goal.targetY}, ${f.goal.stepsLeft} steps left (set ${f.goal.age} ticks ago)`
+    : 'No goal';
   const dl = document.createElement('dl');
   const rows: [string, string][] = [
     ['Position', `${f.x}, ${f.y}`],
@@ -358,6 +370,7 @@ function showFolk(msg: FolkDetailMessage): void {
     ),
     energyLine,
     injuryLine,
+    goalLine,
     dl,
     inventory,
     chosenTitle,
@@ -387,6 +400,7 @@ const conn = connect(SERVER_URL, {
   onWorld(data) {
     selectedFolk = null;
     view.setSelectedFolk(null);
+    view.setGoal(null);
     folkDetailEl.className = 'muted';
     folkDetailEl.textContent = 'Click a Folk to inspect it.';
     showWorld(data);

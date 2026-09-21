@@ -1,6 +1,7 @@
 import {
   OPTION,
   OPTION_COUNT,
+  OPTION_NAMES,
   PENDING_IDLE,
   PENDING_MOVE,
   PENDING_NONE,
@@ -22,11 +23,13 @@ import {
   folkCounters,
   ledgerIndex,
   sourceIndex,
+  travelIndex,
   type Metrics,
 } from '../metrics';
 import type { Perf } from '../perf';
 import type { Rng } from '../rng';
 import type { World } from '../world';
+import { climbMeters, createRouter, routeTo, search, stepTicks, type Router } from './routing';
 import { initFolk, walkableTable, type FolkStore } from './store';
 
 const ACTION = Object.fromEntries(FOLK_ACTIONS.map((name, i) => [name, i])) as Record<
@@ -45,14 +48,6 @@ const OPTION_LABEL: Record<number, number> = {
   [PENDING_IDLE]: ACTION.idle,
 };
 
-/** Neighbour offsets in a fixed order so searches are deterministic. */
-const DIRS: readonly (readonly [number, number])[] = [
-  [0, -1],
-  [1, 0],
-  [0, 1],
-  [-1, 0],
-];
-
 interface ForageTarget {
   def: ForageDef;
   species: number;
@@ -70,7 +65,9 @@ export interface FolkContext {
   readonly rng: Rng;
   readonly events: SimEvent[];
   readonly emitMoves: boolean;
+  readonly emitGoals: boolean;
   readonly walkable: Uint8Array;
+  readonly router: Router;
   readonly forage: readonly ForageTarget[];
   /** Calories above baseline burned per tick for each action label. */
   readonly labelCost: Float64Array;
@@ -78,12 +75,6 @@ export interface FolkContext {
   readonly edibleOrder: readonly number[];
   readonly senses: Senses;
   readonly intent: Intent;
-  readonly search: {
-    queue: Int32Array;
-    parent: Int32Array;
-    stamp: Uint32Array;
-    current: number;
-  };
 }
 
 export function createFolkContext(
@@ -96,8 +87,8 @@ export function createFolkContext(
   rng: Rng,
   events: SimEvent[],
   emitMoves: boolean,
+  emitGoals: boolean,
 ): FolkContext {
-  const n = world.width * world.height;
   const forage = settings.actions.map((def) => {
     const species = eco.species.findIndex((s) => s.key === def.species);
     if (species < 0) throw new Error(`action ${def.key} works unknown species ${def.species}`);
@@ -126,7 +117,9 @@ export function createFolkContext(
     rng,
     events,
     emitMoves,
+    emitGoals,
     walkable: walkableTable(),
+    router: createRouter(world, settings),
     forage,
     labelCost,
     edibleOrder,
@@ -145,16 +138,11 @@ export function createFolkContext(
       params: store.params,
       paramBase: 0,
       targetTile: new Int32Array(OPTION_COUNT),
-      targetDist: new Int32Array(OPTION_COUNT),
+      targetTicks: new Float32Array(OPTION_COUNT),
+      targetKcal: new Float32Array(OPTION_COUNT),
       settings,
     },
     intent: { option: OPTION.wander, tile: -1 },
-    search: {
-      queue: new Int32Array(n),
-      parent: new Int32Array(n),
-      stamp: new Uint32Array(n),
-      current: 0,
-    },
   };
 }
 
@@ -182,101 +170,101 @@ function foodKcal(ctx: FolkContext, slot: number): number {
 }
 
 /**
- * Breadth-first search over walkable tiles. For every foraging option it records the nearest tile
- * that has enough of the species and how far it is to walk. Folk currently know the whole map within
- * the search depth; perception limits come later.
+ * Find, for every foraging option, the place that takes the least walking time to reach and has enough of
+ * the species, with the time and calories the walk costs. Folk currently know the whole map within the
+ * search budget; perception limits come later.
  */
-function scanTargets(ctx: FolkContext, startX: number, startY: number): void {
-  const { world, walkable, search, senses, eco } = ctx;
-  const { width, height, terrain } = world;
+function scanTargets(ctx: FolkContext, start: number): void {
+  const { world, settings, router, senses, eco } = ctx;
   senses.targetTile.fill(-1);
-  senses.targetDist.fill(-1);
+  senses.targetTicks.fill(0);
+  senses.targetKcal.fill(0);
   let missing = ctx.forage.length;
-
-  const check = (tile: number, dist: number): void => {
+  search(world, settings, router, start, (tile, ticks, kcal) => {
     for (const f of ctx.forage) {
       if (senses.targetTile[f.def.option]! >= 0) continue;
       if (eco.stock[f.species]![tile]! >= f.def.minStock) {
         senses.targetTile[f.def.option] = tile;
-        senses.targetDist[f.def.option] = dist;
+        senses.targetTicks[f.def.option] = ticks;
+        senses.targetKcal[f.def.option] = kcal;
         missing--;
       }
     }
-  };
-
-  search.current += 1;
-  const stamp = search.current;
-  const start = startY * width + startX;
-  let head = 0;
-  let tail = 0;
-  search.queue[tail++] = start;
-  search.stamp[start] = stamp;
-  search.parent[start] = -1;
-  check(start, 0);
-  // BFS layers are tracked by queue position rather than a per-tile depth.
-  let layerEnd = tail;
-  let layer = 0;
-  while (head < tail && missing > 0) {
-    if (head === layerEnd) {
-      layer += 1;
-      layerEnd = tail;
-      if (layer > ctx.settings.folk.searchDepth) return;
-    }
-    const current = search.queue[head++]!;
-    const cx = current % width;
-    const cy = (current - cx) / width;
-    for (const [dx, dy] of DIRS) {
-      const nx = cx + dx;
-      const ny = cy + dy;
-      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
-      const next = ny * width + nx;
-      if (search.stamp[next] === stamp || !walkable[terrain[next]!]) continue;
-      search.stamp[next] = stamp;
-      search.parent[next] = current;
-      check(next, layer + 1);
-      search.queue[tail++] = next;
-    }
-  }
-}
-
-/** Tiles to walk from the scan start to `target`, in order (excluding the start). */
-function pathTo(ctx: FolkContext, target: number): Int32Array {
-  const steps: number[] = [];
-  for (let t = target; ctx.search.parent[t]! >= 0; t = ctx.search.parent[t]!) steps.push(t);
-  return Int32Array.from(steps.reverse());
+    return missing === 0;
+  });
 }
 
 function multiplier(ctx: FolkContext, slot: number): number {
   return ctx.settings.injury.durationMultiplier[ctx.store.injury[slot]!]!;
 }
 
-function begin(ctx: FolkContext, slot: number, tick: number, pending: number, ticks: number): void {
+/**
+ * Start doing something that takes `ticks`. It begins when the Folk became free, which can be a fraction of a
+ * tick earlier than now (a step over slow ground rarely ends on a whole tick), so no speed is lost to rounding.
+ */
+function begin(
+  ctx: FolkContext,
+  slot: number,
+  tick: number,
+  pending: number,
+  ticks: number,
+  scaleForInjury = true,
+): void {
   const { store } = ctx;
+  const free = store.readyAt[slot]!;
+  const start = free > tick - 1 ? free : tick;
   store.pending[slot] = pending;
-  store.busyUntil[slot] = tick + Math.max(1, Math.ceil(ticks * multiplier(ctx, slot)));
+  store.readyAt[slot] = start + (scaleForInjury ? ticks * multiplier(ctx, slot) : ticks);
   store.action[slot] = OPTION_LABEL[pending] ?? ACTION.idle;
 }
 
+/** Take one step onto the adjacent tile; how long it takes depends on the ground and the slope. */
 function beginStepTo(ctx: FolkContext, slot: number, tick: number, tile: number): void {
-  ctx.store.pendingTile[slot] = tile;
-  begin(ctx, slot, tick, PENDING_MOVE, 1);
+  const { store, world, settings, router } = ctx;
+  const from = store.y[slot]! * world.width + store.x[slot]!;
+  const ticks = stepTicks(world, settings, router, from, tile) * multiplier(ctx, slot);
+  store.pendingTile[slot] = tile;
+  store.pendingTicks[slot] = ticks;
+  begin(ctx, slot, tick, PENDING_MOVE, ticks, false);
 }
 
-function wander(ctx: FolkContext, slot: number, tick: number): void {
-  const { store, world, rng, walkable } = ctx;
-  if (rng.next() < ctx.settings.folk.idleChance) return begin(ctx, slot, tick, PENDING_IDLE, 1);
-  const x = store.x[slot]!;
-  const y = store.y[slot]!;
-  const options: number[] = [];
-  for (const [dx, dy] of DIRS) {
-    const nx = x + dx;
-    const ny = y + dy;
-    if (nx < 0 || ny < 0 || nx >= world.width || ny >= world.height) continue;
-    const tile = ny * world.width + nx;
-    if (walkable[world.terrain[tile]!]) options.push(tile);
+function clearGoal(store: FolkStore, slot: number): void {
+  store.goal[slot] = PENDING_NONE;
+  store.goalTile[slot] = -1;
+  store.goalPath[slot] = null;
+  store.goalPos[slot] = 0;
+}
+
+/** Put a goal on the Folk's blackboard: what it is after, where, and the way there. */
+function setGoal(
+  ctx: FolkContext,
+  slot: number,
+  tick: number,
+  option: number,
+  tile: number,
+  path: Int32Array | null,
+  estimatedTicks: number,
+): void {
+  const { store, world } = ctx;
+  store.goal[slot] = option;
+  store.goalTile[slot] = tile;
+  store.goalTick[slot] = tick;
+  store.goalPath[slot] = path;
+  store.goalPos[slot] = 0;
+  count(ctx, slot, COUNTER.goals, 1);
+  if (ctx.emitGoals) {
+    ctx.events.push({
+      tick,
+      type: 'goal',
+      folk: store.id[slot]!,
+      x: store.x[slot]!,
+      y: store.y[slot]!,
+      option: OPTION_NAMES[option]!,
+      targetX: tile % world.width,
+      targetY: Math.floor(tile / world.width),
+      ticks: estimatedTicks,
+    });
   }
-  if (options.length === 0) return begin(ctx, slot, tick, PENDING_IDLE, 1);
-  beginStepTo(ctx, slot, tick, options[Math.floor(rng.next() * options.length)]!);
 }
 
 /** Fill the shared senses object for one Folk. */
@@ -296,7 +284,7 @@ function sense(ctx: FolkContext, slot: number): void {
   senses.paramBase = slot * MAX_PARAMS;
 }
 
-/** Calories one meal would add right now, and how many ticks it takes to eat them. */
+/** Calories one meal would add right now. */
 function mealKcal(ctx: FolkContext, slot: number): number {
   const { body } = ctx.settings;
   return Math.min(
@@ -306,11 +294,44 @@ function mealKcal(ctx: FolkContext, slot: number): number {
   );
 }
 
+/** Stand still for a while, or stroll to a random spot nearby (a short goal, walked step by step). */
+function wander(ctx: FolkContext, slot: number, tick: number): void {
+  const { store, world, rng, walkable, settings, router } = ctx;
+  const { folk } = settings;
+  if (rng.next() < folk.idleChance)
+    return begin(ctx, slot, tick, PENDING_IDLE, folk.idleTicks, false);
+  const x = store.x[slot]!;
+  const y = store.y[slot]!;
+  const here = y * world.width + x;
+  const r = Math.max(1, Math.floor(folk.wanderRadius));
+  let target = -1;
+  for (let attempt = 0; attempt < 12 && target < 0; attempt++) {
+    const tx = x + Math.floor(rng.next() * (2 * r + 1)) - r;
+    const ty = y + Math.floor(rng.next() * (2 * r + 1)) - r;
+    if (tx < 0 || ty < 0 || tx >= world.width || ty >= world.height) continue;
+    const tile = ty * world.width + tx;
+    if (tile !== here && walkable[world.terrain[tile]!]) target = tile;
+  }
+  let ticks = 0;
+  if (target >= 0) {
+    search(world, settings, router, here, (tile, t) => {
+      ticks = t;
+      return tile === target;
+    });
+  }
+  if (target < 0 || router.closed[target] !== router.current) {
+    return begin(ctx, slot, tick, PENDING_IDLE, folk.idleTicks, false);
+  }
+  setGoal(ctx, slot, tick, OPTION.wander, target, routeTo(router, target), ticks);
+  continueGoal(ctx, slot, tick, false);
+}
+
 /** Ask the Folk's decider what to do and start doing it. */
 function decide(ctx: FolkContext, slot: number, tick: number): void {
-  const { store, senses, intent, world, perf } = ctx;
+  const { store, senses, intent, world, perf, router } = ctx;
+  const here = store.y[slot]! * world.width + store.x[slot]!;
   const t0 = perf?.timer();
-  scanTargets(ctx, store.x[slot]!, store.y[slot]!);
+  scanTargets(ctx, here);
   sense(ctx, slot);
   const t1 = perf?.timer();
   const scores = store.scores.subarray(slot * OPTION_COUNT, (slot + 1) * OPTION_COUNT);
@@ -324,7 +345,7 @@ function decide(ctx: FolkContext, slot: number, tick: number): void {
   switch (intent.option) {
     case OPTION.eat: {
       const kcal = mealKcal(ctx, slot);
-      // Nothing to eat or no room: a decider asked for the impossible, so do nothing useful this tick.
+      // Nothing to eat or no room: a decider asked for the impossible, so it wanders instead.
       if (kcal <= 0) return wander(ctx, slot, tick);
       return begin(
         ctx,
@@ -339,38 +360,78 @@ function decide(ctx: FolkContext, slot: number, tick: number): void {
     case OPTION.wander:
       return wander(ctx, slot, tick);
   }
-  // A foraging option: head for the target tile, then work it.
-  const here = store.y[slot]! * world.width + store.x[slot]!;
-  store.intent[slot] = intent.option;
-  store.intentTile[slot] = intent.tile;
-  store.paths[slot] = intent.tile === here ? null : pathTo(ctx, intent.tile);
-  store.pathPos[slot] = 0;
-  continueIntent(ctx, slot, tick);
+  // A foraging option: the scan just ran, so the route to the target is known.
+  const path = intent.tile === here ? null : routeTo(router, intent.tile);
+  setGoal(ctx, slot, tick, intent.option, intent.tile, path, senses.targetTicks[intent.option]!);
+  continueGoal(ctx, slot, tick, false);
 }
 
-function clearIntent(store: FolkStore, slot: number): void {
-  store.intent[slot] = PENDING_NONE;
-  store.intentTile[slot] = -1;
-  store.paths[slot] = null;
+/** The Folk gives up its goal on the way; it will decide again. */
+function interrupt(
+  ctx: FolkContext,
+  slot: number,
+  tick: number,
+  reason: 'hungry' | 'depleted',
+): void {
+  const { store } = ctx;
+  store.interruptedAt[slot] = tick;
+  count(ctx, slot, COUNTER.interrupts, 1);
+  ctx.events.push({
+    tick,
+    type: 'interrupt',
+    folk: store.id[slot]!,
+    x: store.x[slot]!,
+    y: store.y[slot]!,
+    option: OPTION_NAMES[store.goal[slot]!]!,
+    reason,
+  });
+  clearGoal(store, slot);
 }
 
-/** Keep going toward the current foraging intent: walk the next step, or start the work on arrival. */
-function continueIntent(ctx: FolkContext, slot: number, tick: number): void {
-  const { store, world, eco } = ctx;
-  const path = store.paths[slot];
-  const pos = store.pathPos[slot]!;
+/**
+ * Follow the goal on the blackboard: take the next step of the path, or, on arrival, start the work. When
+ * `checkInterrupts` is set (between steps) it first drops the goal if the Folk's decider would rather
+ * reconsider (see `shouldInterrupt`), or the place it was heading for has run out.
+ */
+function continueGoal(
+  ctx: FolkContext,
+  slot: number,
+  tick: number,
+  checkInterrupts: boolean,
+): void {
+  const { store, world, eco, settings } = ctx;
+  const option = store.goal[slot]!;
+  if (option === PENDING_NONE) return;
+  const target = ctx.forage.find((f) => f.def.option === option);
+  const goalTile = store.goalTile[slot]!;
+
+  if (checkInterrupts) {
+    // Ask the Folk's own decider whether it would rather reconsider (rate-limited so it cannot loop).
+    if (tick - store.interruptedAt[slot]! >= settings.folk.interruptCooldown) {
+      sense(ctx, slot);
+      if (DECIDERS[store.decider[slot]!]!.shouldInterrupt(ctx.senses)) {
+        return interrupt(ctx, slot, tick, 'hungry');
+      }
+    }
+    if (target && eco.stock[target.species]![goalTile]! < target.def.minStock) {
+      return interrupt(ctx, slot, tick, 'depleted');
+    }
+  }
+
+  const path = store.goalPath[slot];
+  const pos = store.goalPos[slot]!;
   if (path && pos < path.length) {
-    store.pathPos[slot] = pos + 1;
+    store.goalPos[slot] = pos + 1;
     return beginStepTo(ctx, slot, tick, path[pos]!);
   }
-  const target = ctx.forage.find((f) => f.def.option === store.intent[slot]);
+
+  // Arrived.
+  if (!target) return clearGoal(store, slot); // a stroll is over
   const here = store.y[slot]! * world.width + store.x[slot]!;
-  const roomKg = ctx.settings.folk.carryCapacityKg - carriedKg(ctx, slot);
-  if (!target || eco.stock[target.species]![here]! < target.def.minStock || roomKg < 0.5) {
-    // Someone got there first, or there is nowhere to put it: think again next tick.
-    clearIntent(store, slot);
-    return;
-  }
+  const roomKg = settings.folk.carryCapacityKg - carriedKg(ctx, slot);
+  if (eco.stock[target.species]![here]! < target.def.minStock)
+    return interrupt(ctx, slot, tick, 'depleted');
+  if (roomKg < 0.5) return clearGoal(store, slot);
   begin(ctx, slot, tick, target.def.option, target.def.ticks);
 }
 
@@ -504,32 +565,48 @@ function forageResult(ctx: FolkContext, slot: number, tick: number, option: numb
   injure(ctx, slot, tick, def);
 }
 
+/** Finish a step: move onto the tile, pay for the climb, and record the walk. */
+function finishStep(ctx: FolkContext, slot: number, tick: number): void {
+  const { store, world, settings, metrics } = ctx;
+  const to = store.pendingTile[slot]!;
+  const fromX = store.x[slot]!;
+  const fromY = store.y[slot]!;
+  const from = fromY * world.width + fromX;
+  const climb = climbMeters(world, settings, from, to) * settings.movement.climbKcalPerMeter;
+  store.x[slot] = to % world.width;
+  store.y[slot] = Math.floor(to / world.width);
+  if (climb > 0) {
+    // Climbing burns calories on top of the per-tick cost of walking; it is charged as walking.
+    store.reserve[slot] = store.reserve[slot]! - climb;
+    metrics.ledger[ledgerIndex(store.decider[slot]!, LEDGER_ACTIONS + ACTION.moving)]! += climb;
+    count(ctx, slot, COUNTER.kcalSpent, climb);
+  }
+  const travel = travelIndex(store.decider[slot]!, world.terrain[to]!);
+  metrics.travel[travel]! += 1;
+  metrics.travel[travel + 1]! += store.pendingTicks[slot]!;
+  metrics.travel[travel + 2]! += store.pendingTicks[slot]! * settings.activity.moving + climb;
+  count(ctx, slot, COUNTER.steps, 1);
+  if (ctx.emitMoves) {
+    ctx.events.push({
+      tick,
+      type: 'move',
+      folk: store.id[slot]!,
+      x: store.x[slot]!,
+      y: store.y[slot]!,
+      fromX,
+      fromY,
+    });
+  }
+}
+
 /** Apply the outcome of whatever a Folk just finished doing. */
 function resolve(ctx: FolkContext, slot: number, tick: number): void {
-  const { store, world } = ctx;
+  const { store } = ctx;
   const pending = store.pending[slot]!;
   store.pending[slot] = PENDING_NONE;
   switch (pending) {
-    case PENDING_MOVE: {
-      const tile = store.pendingTile[slot]!;
-      const fromX = store.x[slot]!;
-      const fromY = store.y[slot]!;
-      store.x[slot] = tile % world.width;
-      store.y[slot] = Math.floor(tile / world.width);
-      count(ctx, slot, COUNTER.steps, 1);
-      if (ctx.emitMoves) {
-        ctx.events.push({
-          tick,
-          type: 'move',
-          folk: store.id[slot]!,
-          x: store.x[slot]!,
-          y: store.y[slot]!,
-          fromX,
-          fromY,
-        });
-      }
-      return;
-    }
+    case PENDING_MOVE:
+      return finishStep(ctx, slot, tick);
     case PENDING_IDLE:
     case OPTION.rest:
       return;
@@ -537,7 +614,7 @@ function resolve(ctx: FolkContext, slot: number, tick: number): void {
       return eat(ctx, slot, tick);
     default:
       forageResult(ctx, slot, tick, pending);
-      clearIntent(store, slot);
+      clearGoal(store, slot);
   }
 }
 
@@ -619,9 +696,9 @@ export function stepFolk(ctx: FolkContext, tick: number): void {
   const { store } = ctx;
   for (let slot = 0; slot < store.count; slot++) {
     if (liveAndDie(ctx, slot, tick)) continue;
-    if (tick >= store.busyUntil[slot]!) {
+    if (tick >= store.readyAt[slot]!) {
       if (store.pending[slot] !== PENDING_NONE) resolve(ctx, slot, tick);
-      if (store.intent[slot] !== PENDING_NONE) continueIntent(ctx, slot, tick);
+      if (store.goal[slot] !== PENDING_NONE) continueGoal(ctx, slot, tick, true);
       if (store.pending[slot] === PENDING_NONE) decide(ctx, slot, tick);
     }
     ctx.metrics.actionTicks[actionIndex(store.decider[slot]!, store.action[slot]!)]! += 1;

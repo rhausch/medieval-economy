@@ -37,11 +37,30 @@ export interface Settings {
     /** Chance per tick of dying at that injury level. */
     deathChancePerTick: number[];
   };
+  /** Walking: how fast terrain and slope let a Folk go, and what climbing costs. */
+  movement: {
+    /** Elevation 0 to 1 spans this many metres, which sets how steep a slope between tiles is. */
+    elevationRangeM: number;
+    /** A slope of grade g (rise over run) divides walking speed by 1 + slopeSlowdown * g. */
+    slopeSlowdown: number;
+    /** Extra calories per metre climbed, on top of the calories per tick of walking. */
+    climbKcalPerMeter: number;
+    /** Walking speed on each walkable terrain, in tiles per tick (1 is one tile in a tick). */
+    terrainSpeed: Record<string, number>;
+  };
   folk: {
     count: number;
     carryCapacityKg: number;
-    searchDepth: number;
+    /** Furthest a Folk searches for work, in ticks of walking. */
+    searchTicks: number;
+    /** Chance that a Folk with nothing to do stands still instead of strolling. */
     idleChance: number;
+    /** How long it stands still, in ticks. */
+    idleTicks: number;
+    /** How far a stroll goes, in tiles. */
+    wanderRadius: number;
+    /** Ticks after an interrupt before another can fire (each decider decides when it wants one). */
+    interruptCooldown: number;
     restTicks: number;
     spawnRadius: number;
     settlementCandidates: number;
@@ -87,11 +106,20 @@ export function defaultSettings(): Settings {
       restHealFactor: 2,
       deathChancePerTick: [0, 0, 0],
     },
+    movement: {
+      elevationRangeM: 1500,
+      slopeSlowdown: 4,
+      climbKcalPerMeter: 0.65,
+      terrainSpeed: { sand: 0.8, grass: 1, forest: 0.7, hills: 0.6 },
+    },
     folk: {
       count: 20,
       carryCapacityKg: 20,
-      searchDepth: 60,
+      searchTicks: 90,
       idleChance: 0.4,
+      idleTicks: 4,
+      wanderRadius: 6,
+      interruptCooldown: 10,
       restTicks: 3,
       spawnRadius: 5,
       settlementCandidates: 60,
@@ -148,6 +176,7 @@ export function settingsToFile(settings: Settings): Json {
     units: numeric(settings.units),
     body: numeric(settings.body),
     activity: numeric(settings.activity),
+    movement: numeric(settings.movement),
     injury: numeric(settings.injury),
     folk: {
       ...(numeric({ ...settings.folk, deciders: undefined }) as Json),
@@ -217,6 +246,23 @@ function validate(settings: Settings): void {
   positive(settings.body.maxIntakeKcalPerTick, 'body.maxIntakeKcalPerTick');
   positive(settings.body.mealKcal, 'body.mealKcal');
   positive(settings.folk.carryCapacityKg, 'folk.carryCapacityKg');
+  positive(settings.folk.searchTicks, 'folk.searchTicks');
+  positive(settings.folk.idleTicks, 'folk.idleTicks');
+  positive(settings.folk.wanderRadius, 'folk.wanderRadius');
+  positive(settings.movement.elevationRangeM, 'movement.elevationRangeM');
+  if (!(settings.movement.slopeSlowdown >= 0))
+    throw new ConfigError('movement.slopeSlowdown must be at least 0');
+  if (!(settings.movement.climbKcalPerMeter >= 0)) {
+    throw new ConfigError('movement.climbKcalPerMeter must be at least 0');
+  }
+  for (const [terrain, speed] of Object.entries(settings.movement.terrainSpeed)) {
+    if (!(speed > 0 && speed <= 1)) {
+      throw new ConfigError(`movement.terrainSpeed.${terrain} must be above 0 and at most 1`);
+    }
+  }
+  if (!(settings.folk.interruptCooldown >= 0)) {
+    throw new ConfigError('folk.interruptCooldown must be at least 0');
+  }
   positive(settings.units.tickMinutes, 'units.tickMinutes');
   positive(settings.units.tileMeters, 'units.tileMeters');
   const { min, max } = settings.body.startReserveFraction;

@@ -22,7 +22,14 @@ export { FOLK_ACTIONS, INJURY_NAMES, type FolkAction } from './data/folk';
 export type { FolkStore } from './folk/store';
 export type { SimEvent } from './events';
 export { DECIDERS, deciderByKey, MAX_PARAMS, type DeciderDef, type ParamSpec } from './deciders';
-export { FORAGE_ACTIONS, OPTION, OPTION_NAMES, OPTION_COUNT, type ForageDef } from './data/actions';
+export {
+  FORAGE_ACTIONS,
+  OPTION,
+  OPTION_NAMES,
+  OPTION_COUNT,
+  PENDING_NONE,
+  type ForageDef,
+} from './data/actions';
 export {
   COUNTER_NAMES,
   COUNTER_COUNT,
@@ -33,6 +40,7 @@ export {
   folkCounters,
   ledgerRows,
   sourceRows,
+  travelRows,
   terrainResources,
   type ActivityRow,
   type ConsumptionRow,
@@ -40,5 +48,6 @@ export {
   type Metrics,
   type SourceRow,
   type TerrainResourceRow,
+  type TravelRow,
 } from './metrics';
 export { TimingStat, resetPerf, summarize, type Perf, type TimingSummary } from './perf';
