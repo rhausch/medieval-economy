@@ -43,6 +43,8 @@ const FIELDS = [
   { key: 'mountainFraction', label: 'Mountains', step: 0.02 },
   { key: 'forestFraction', label: 'Forest', step: 0.05 },
   { key: 'plantRegrowthScale', label: 'Plant regrowth', step: 0.05 },
+  { key: 'coverageScale', label: 'Food coverage', step: 0.25 },
+  { key: 'separateAnimalFood', label: 'Animals graze own (0/1)', step: 1 },
 ] as const;
 
 const inputs = new Map<string, HTMLInputElement>();
@@ -80,8 +82,8 @@ const totalValueEls: HTMLElement[] = [];
 function showWorld(data: WorldData): void {
   for (const [key, input] of inputs) {
     input.value = String(
-      key === 'plantRegrowthScale'
-        ? data.meta.plantRegrowthScale
+      key === 'plantRegrowthScale' || key === 'coverageScale' || key === 'separateAnimalFood'
+        ? data.meta.ecology[key]
         : data.meta.params[key as keyof typeof data.meta.params],
     );
   }

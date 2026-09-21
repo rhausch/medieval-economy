@@ -29,6 +29,8 @@ export interface SpeciesInfo {
   kind: 'plant' | 'animal';
   color: number;
   maxCapacity: number;
+  /** True if Folk can gather or hunt it (false for the forage layer animals graze). */
+  food: boolean;
 }
 
 /** Sent as JSON, immediately followed by one binary frame: terrain ids then 8-bit elevation. */
@@ -40,6 +42,8 @@ export interface WorldMessage {
   deciders: DeciderInfo[];
   /** Calorie reserve capacity and baseline burn per tick. */
   body: { capacity: number; baseline: number };
+  /** The ecology settings the world is running with. */
+  ecology: { plantRegrowthScale: number; coverageScale: number; separateAnimalFood: number };
   /** Fingerprint of the run's configuration (see the manifest for the full settings). */
   settingsHash: string;
   /** Plant regrowth relative to the default (below 1 means scarcer food). */
@@ -83,7 +87,13 @@ export interface StatsMessage {
   terrains: {
     terrain: string;
     tiles: number;
-    species: { key: string; habitable: number; stock: number; capacity: number }[];
+    species: {
+      key: string;
+      habitable: number;
+      depleted: number;
+      stock: number;
+      capacity: number;
+    }[];
   }[];
   /** Units of each good currently carried by Folk. */
   carried: Record<string, number>;
@@ -200,6 +210,13 @@ export type ClientMessage =
   | { type: 'resume' }
   | { type: 'speed'; speed: number }
   | { type: 'subscribe'; resources: boolean }
-  | { type: 'generate'; params: Partial<WorldParams> & { plantRegrowthScale?: number } }
+  | {
+      type: 'generate';
+      params: Partial<WorldParams> & {
+        plantRegrowthScale?: number;
+        coverageScale?: number;
+        separateAnimalFood?: number;
+      };
+    }
   | { type: 'inspect'; x: number; y: number }
   | { type: 'inspectFolk'; id: number };

@@ -14,6 +14,7 @@ What it answers, for tuning the world and the behaviours:
   time_by_action      how each decider's Folk spend their time
   calorie_ledger      calories in and out: eaten, baseline, healing and each activity
   reserve             calorie reserves over time
+  patches             how many patch tiles each species has and how many have been emptied
   movement            where Folk walk, how fast (ticks per step) and what it costs
   food_sources        where calories come from: species, terrain, success rate
   lifetimes           per-Folk outcomes with the decider parameters (fitness data for a GA)
@@ -41,7 +42,7 @@ TERRAIN_COLORS = {
     "water": "#2f6fb0", "sand": "#e6d99b", "grass": "#6fae4f",
     "forest": "#2f7a3a", "hills": "#93694a", "mountain": "#8a8a92",
 }
-SPECIES_COLORS = {"berries": "#b04a9c", "roots": "#d98a3d", "hare": "#bbbbbb", "deer": "#5a3a20"}
+SPECIES_COLORS = {"berries": "#b04a9c", "roots": "#d98a3d", "hare": "#bbbbbb", "deer": "#5a3a20", "forage": "#9cc36b"}
 
 
 def newest_run() -> Path:
@@ -133,6 +134,14 @@ def movement(run: Run) -> pd.DataFrame:
     df["ticks_per_step"] = df["ticks"] / df["steps"]
     df["kcal_per_step"] = df["kcal"] / df["steps"]
     return df.sort_values("steps", ascending=False)
+
+
+def patches(run: Run) -> pd.DataFrame:
+    """Patch tiles per species over time, and the share that has been grazed or hunted out."""
+    df = run.csv("terrain_resources.csv")
+    out = df.groupby(["tick", "species"])[["habitable", "depleted"]].sum().reset_index()
+    out["share_emptied"] = out["depleted"] / out["habitable"].where(out["habitable"] > 0)
+    return out[out["habitable"] > 0]
 
 
 def reserve_over_time(run: Run) -> pd.DataFrame:
@@ -290,6 +299,18 @@ def plot_movement(run: Run) -> plt.Figure:
     return fig
 
 
+def plot_patches(run: Run) -> plt.Figure:
+    """Share of each species' patch tiles that are emptied, over time: overgrazing and overhunting."""
+    df = patches(run)
+    fig, ax = plt.subplots(figsize=(8, 3.4))
+    for species, grp in df.groupby("species"):
+        ax.plot(grp["tick"], grp["share_emptied"], label=species, color=SPECIES_COLORS.get(species))
+    ax.set(title="Share of patch tiles emptied", xlabel="tick", ylim=(0, 1.02))
+    ax.legend()
+    fig.tight_layout()
+    return fig
+
+
 def plot_reserve(run: Run) -> plt.Figure:
     """Mean, minimum and maximum calorie reserve over time, per decider."""
     df = reserve_over_time(run)
@@ -342,6 +363,7 @@ PLOTS = {
     "calories": plot_calories,
     "reserve": plot_reserve,
     "movement": plot_movement,
+    "patches": plot_patches,
     "food_sources": plot_food_sources,
     "lifetimes": plot_lifetimes,
 }
@@ -364,6 +386,8 @@ def report(run: Run, out: Path | None = None) -> Path:
     print(src.groupby(["decider", "species"])[["attempts", "successes", "kg", "kcal"]].sum())
     print("\n== where calories come from (by terrain) ==")
     print(src.groupby(["decider", "terrain"])["kcal"].sum().unstack(0))
+    print("\n== patches: tiles and share emptied, last snapshot ==")
+    print(_final(patches(run)).set_index("species")[["habitable", "depleted", "share_emptied"]])
     print("\n== walking by terrain ==")
     print(movement(run)[["steps", "share_of_steps", "ticks_per_step", "kcal_per_step"]])
     print("\n== food fill by terrain, last snapshot ==")

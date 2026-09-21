@@ -42,3 +42,7 @@ The two tables were measured in separate processes that overlapped in time; re-r
 ## After F2 (movement and goals)
 
 Mixed deciders, 256x256, 200 ticks: 20 Folk 273 ticks/s, 500 Folk 238, 2000 Folk 171, 5000 Folk 113 (the tables above were measured before F1 and F2). Decisions per tick fell about fourfold (5000 Folk: 858 against 3,247) because Folk walk and stroll toward goals instead of deciding every tick, which more than paid for the costlier walking-time search (search p95 up from about 3 microseconds to a few tens). The ecology (about 3.7 ms per tick) remains the cost that does not scale with Folk.
+
+## After F3 (sparse patchy food)
+
+The ecology only updates tiles a species lives on and runs every 10 ticks, and grass exists only under the animals. Mixed deciders: at 256x256 with 20 Folk the whole simulation runs at about 2,650 ticks per second (0.38 ms per tick, ecology 0.19 ms); at 1024x1024 the ecology costs about 4.8 ms per tick (it was 60) and the run about 170 ticks per second. The Folk phase, however, got costlier because food is sparse: each decision's walking-time search now takes about 100 to 350 microseconds (it was about 1), so 500 Folk take about 12 ms per tick and 2,000 Folk about 75 ms. The search budget (`folk.searchTicks`, default 90) trades survival against cost only in proportion (25 ticks cuts it about 2.5 times). Perception and memory (F4) removes the search.

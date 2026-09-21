@@ -7,6 +7,7 @@ import {
   sourceRows,
   terrainResources,
   createSim,
+  defaultSettings,
   DECIDERS,
   INJURY_NAMES,
   ledgerRows,
@@ -50,14 +51,24 @@ try {
   console.error((error as Error).message);
   process.exit(1);
 }
+const startEcology = (settings ?? defaultSettings()).ecology;
 let plantRegrowthScale = process.env.REGROWTH
   ? Number(process.env.REGROWTH)
-  : (settings?.ecology.plantRegrowthScale ?? 1);
+  : startEcology.plantRegrowthScale;
+let coverageScale = process.env.COVERAGE
+  ? Number(process.env.COVERAGE)
+  : startEcology.coverageScale;
+let separateAnimalFood =
+  process.env.SEPARATE_FOOD !== undefined
+    ? process.env.SEPARATE_FOOD === '1'
+    : startEcology.separateAnimalFood === 1;
 const timer = (): number => performance.now();
 let sim: Sim = createSim({
   seed: Number(process.env.SEED ?? 1),
   settings,
   plantRegrowthScale,
+  coverageScale,
+  separateAnimalFood,
   timer,
 });
 
@@ -277,6 +288,7 @@ function buildStats(): StatsMessage {
       species: mine.map((r) => ({
         key: r.species,
         habitable: r.habitable,
+        depleted: r.depleted,
         stock: r.stock,
         capacity: r.capacity,
       })),
@@ -313,6 +325,11 @@ function sendWorld(socket: WebSocket): void {
       baseline: sim.settings.body.baselineKcalPerTick,
     },
     settingsHash: hashSettings(sim.settings),
+    ecology: {
+      plantRegrowthScale: sim.settings.ecology.plantRegrowthScale,
+      coverageScale: sim.settings.ecology.coverageScale,
+      separateAnimalFood: sim.settings.ecology.separateAnimalFood,
+    },
     plantRegrowthScale,
     species: sim.settings.species.map((s) => ({
       id: s.id,
@@ -321,6 +338,7 @@ function sendWorld(socket: WebSocket): void {
       kind: s.kind,
       color: s.color,
       maxCapacity: s.maxCapacity,
+      food: sim.settings.actions.some((a) => a.species === s.key),
     })),
   };
   const n = world.width * world.height;
@@ -382,19 +400,36 @@ function sendTile(socket: WebSocket, x: number, y: number): void {
   socket.send(JSON.stringify(msg));
 }
 
-function regenerate(params: Partial<WorldParams> & { plantRegrowthScale?: number }): void {
+function regenerate(
+  params: Partial<WorldParams> & {
+    plantRegrowthScale?: number;
+    coverageScale?: number;
+    separateAnimalFood?: number;
+  },
+): void {
   const width = Math.floor(Number(params.width ?? sim.world.width));
   const height = Math.floor(Number(params.height ?? sim.world.height));
   if (!(width >= 8 && height >= 8 && width * height <= MAX_TILES)) return;
   logger.close(sim);
-  const { plantRegrowthScale: scale, ...world } = params;
+  const {
+    plantRegrowthScale: scale,
+    coverageScale: coverage,
+    separateAnimalFood: separate,
+    ...world
+  } = params;
   if (scale !== undefined && Number.isFinite(Number(scale)) && Number(scale) > 0) {
     plantRegrowthScale = Number(scale);
   }
+  if (coverage !== undefined && Number.isFinite(Number(coverage)) && Number(coverage) > 0) {
+    coverageScale = Number(coverage);
+  }
+  if (separate !== undefined) separateAnimalFood = Number(separate) === 1;
   sim = createSim({
     seed: Number(params.seed ?? sim.config.seed),
     settings,
     plantRegrowthScale,
+    coverageScale,
+    separateAnimalFood,
     timer,
     world: { ...world, width, height },
   });

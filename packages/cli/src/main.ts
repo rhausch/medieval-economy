@@ -18,6 +18,8 @@ const { values } = parseArgs({
     folk: { type: 'string' },
     size: { type: 'string' },
     regrowth: { type: 'string' },
+    coverage: { type: 'string' },
+    'separate-animal-food': { type: 'boolean' },
     deciders: { type: 'string' },
     'snapshot-interval': { type: 'string', default: '10' },
     'metrics-interval': { type: 'string', default: '100' },
@@ -43,6 +45,10 @@ const sim = createSim({
   ...(values.folk ? { folkCount: Number(values.folk) } : {}),
   ...(values.size ? { world: { width: Number(values.size), height: Number(values.size) } } : {}),
   ...(values.regrowth ? { plantRegrowthScale: Number(values.regrowth) } : {}),
+  ...(values.coverage ? { coverageScale: Number(values.coverage) } : {}),
+  ...(values['separate-animal-food'] !== undefined
+    ? { separateAnimalFood: values['separate-animal-food'] }
+    : {}),
   ...(values.deciders ? { deciders: values.deciders.split(',') } : {}),
   emitMoves: values.moves,
   emitGoals: values.goals,

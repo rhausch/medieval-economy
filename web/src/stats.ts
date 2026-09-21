@@ -158,16 +158,27 @@ export function createStatsView(root: HTMLElement): StatsView {
   }
 
   function food(msg: StatsMessage): void {
-    const header = ['', ...species.map((s) => s.name)];
+    const foods = species.filter((s) => s.food);
+    const header = ['', ...foods.map((s) => s.name)];
     const rows = msg.terrains
       .filter((t) => t.species.some((s) => s.habitable > 0))
       .map((t) => [
         `${t.terrain} (${compact(t.tiles)})`,
-        ...species.map((s) => {
+        ...foods.map((s) => {
           const cell = t.species.find((x) => x.key === s.key);
           return cell && cell.capacity > 0 ? percent(cell.stock / cell.capacity) : '-';
         }),
       ]);
+    const patches = species
+      .map((s) => {
+        const cells = msg.terrains.flatMap((t) => t.species.filter((x) => x.key === s.key));
+        const tiles = cells.reduce((sum, c) => sum + c.habitable, 0);
+        const gone = cells.reduce((sum, c) => sum + c.depleted, 0);
+        return tiles > 0
+          ? `${s.name}: ${compact(tiles)} tiles, ${percent(gone / tiles)} emptied`
+          : null;
+      })
+      .filter((line): line is string => line !== null);
     const carried = Object.entries(msg.carried)
       .map(([good, units]) => `${good} ${units.toFixed(0)} kg`)
       .join(', ');
@@ -176,6 +187,7 @@ export function createStatsView(root: HTMLElement): StatsView {
       table(header, rows),
       el('div', 'muted small', 'Stock as a share of capacity, by terrain (tiles in brackets).'),
       el('div', 'muted small', `Carried by Folk: ${carried}`),
+      el('div', 'muted small', `Patches (tiles a species lives on): ${patches.join(' · ')}`),
     );
   }
 

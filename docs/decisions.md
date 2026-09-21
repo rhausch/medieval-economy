@@ -181,3 +181,13 @@ All costs, yields, speeds, densities and ranges live in a configuration file loa
 - **Goal on the blackboard, walked step by step** (as decided earlier), with fractional step times whose remainder carries forward so speed is exact.
 - **Decider-defined interrupts (option B).** Each decider says when it would rather reconsider. The first version (a global 30% reserve threshold) interrupted Folk that had chosen to eat late, and a utility Folk interrupted without then choosing differently. Now `shouldInterrupt` implies `decide` picks eating, tested over random senses; the utility emergency score was raised so eating outranks everything in an emergency. A cooldown stops loops. The global `interruptReserve` setting was removed.
 - **Wandering is a goal** (a stroll of up to 6 tiles, or standing still for 4 ticks), cutting decisions from about 0.9 to about 0.16 per Folk per tick.
+
+## 2026-09-20: F3 built: sparse patchy food
+
+- **Patches from per-species noise**, cut to a coverage share with richness varying between edge and core; defaults berries 4%, roots 3%, hare 8%, deer 2%, a multiplier in the world panel and configuration.
+- **Ecology rates made realistic and the step lengthened.** Rates are per 6-minute tick (days to weeks for plants, months for herds); the ecology steps every 10 ticks with each step covering 10 ticks, tested to match ten single steps within 1%. This is what makes slow recovery and overgrazing possible at all; the MVP's rates regrew plants in hours.
+- **Viability threshold and no seeding**: a plant below 2% of capacity cannot regrow alone; emptied patches recover only from neighbours.
+- **Sparse updates**: per-species lists of tiles and neighbouring pairs; a test proves the result equals a plain whole-map implementation of the same rules.
+- **Animal food: separate is the default.** Measured over 30,000 ticks on three seeds and four coverage levels, shared-diet animals go extinct everywhere while separate ones thrive and give Folk 4 to 25 times as many hunts. The forage layer exists only under the animals to keep it small. Shared stays available (`ecology.separateAnimalFood: 0`).
+- **Starting sparsity 1x** from the sweep (no deaths at 1x and 2x, marginal at 0.5x, famines at 0.25x). Overgrazing appears in animals; plants are barely dented by 20 Folk.
+- **Known cost, deferred to F4:** sparse food makes each omniscient food search expensive (about 100 to 350 microseconds), which limits Folk counts until Folk use remembered patches. The search budget default stays at 90 ticks.

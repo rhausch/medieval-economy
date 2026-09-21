@@ -85,14 +85,15 @@ Each Folk has a private blackboard (shared boards come with groups):
 
 ## Patchy food and overgrazing
 
-Food is sparse and clumped.
+Food is sparse and clumped. Built in F3:
 
-- Each species has its own noise field, thresholded so it occupies only a **coverage** fraction of its habitable tiles, in clumps of a chosen **patch scale**, with variable richness inside a patch. Defaults start sparse: berries about 4% of habitable tiles in small thickets, roots about 3%, hare warrens about 8%, deer ranges about 2% in large areas. Raise coverage if the world is unsustainable.
-- Tiles outside a patch hold none of that species. Terrain and moisture still decide where a species can live at all.
-- **Slow recovery:** regrowth is logistic inside a patch and there is no spontaneous seeding, so a patch picked or grazed to nothing recovers only from neighbouring stock, and below a viability threshold not at all. Overgrazing, by animals and by Folk, is now possible and permanent.
-- **Giving-up density:** how much a Folk leaves behind before it moves on is a decider parameter. Taking everything wins today and can wreck the patch; leaving seed stock lets it recover. This is the seed of the commons problems later governance experiments need.
-- **Animal food, an experiment:** animals could graze their own base forage (grass and browse) instead of the berries and roots Folk gather. We are unsure this is needed, so it is a per-run switch (`animalFood: shared | separate`, default shared) and we will compare the two in F5.
-- **Performance:** the ecology only visits tiles that can hold a species (the patches), which should cut the update on a 1M tile world from about 60 ms to a small fraction.
+- Each species has its own noise field, cut at the level that makes it cover its `coverage` share of the tiles it could live on at all, in clumps of `patchScale` tiles, with richness varying between a patch's edge and its core (`patchRichness`). Terrain and moisture still decide where a species can live. Defaults: berries 4% (scale 5), roots 3% (6), hare 8% (10), deer 2% (24). A `coverageScale` multiplier raises or lowers all of them.
+- Outside its patches a species holds nothing.
+- **Realistic rates.** The MVP's regrowth rates were per fast tick, so plants regrew in hours. They are now per 6-minute tick and slow: a berry patch takes days to weeks to regrow (0.0006 per tick), roots longer (0.0002), hare and deer months. The ecology runs every 10 ticks with each step covering 10 ticks.
+- **Viability and no seeding.** A plant below 2% of a tile's capacity cannot grow on its own, and there is no spontaneous seeding, so a patch grazed to nothing recovers only from neighbouring stock and, if every tile in it is below the threshold, not at all. Stock spreads between neighbouring tiles of the same patch only.
+- **Giving-up density** (how much a Folk leaves behind) is still to come with F4, when Folk choose when to leave a patch.
+- **Animal food, the experiment: separate wins.** With `ecology.separateAnimalFood` 0, hare and deer eat the berries and roots Folk gather; with 1 they graze a grass-and-browse layer that exists only under the animals. Over 30,000 ticks on three seeds, shared animals went extinct in every setting (98 to 100% of their patch tiles emptied, 168 to 510 hunts) while separate animals thrived (1,205 to 4,106 hunts), so separate is the default. Both modes stay available.
+- **Performance:** only tiles a species lives on are updated. At 256x256 the whole simulation went from 273 to about 2,600 ticks per second; at 1024x1024 the ecology went from 60 ms to about 5 ms per tick.
 
 ## Deciders
 
@@ -137,3 +138,10 @@ Each ends in something to play with, followed by feedback.
 - **Search:** one walking-time search per decision finds, for every foraging option, the quickest place, the ticks to get there and the calories it costs; utility scores use those directly.
 - **Tracking:** walking by terrain (steps, ticks per step, calories per step) in `travel.csv`, the Stats panel and the analysis; goals and interrupts per Folk in `lifetimes.csv`; interrupt events always logged, goal events with `--goals`.
 - **Observed:** on the dense-food world about 70% of steps are through forest (1.5 to 1.6 ticks per step and about 37 kcal per step) against 1.1 ticks and 26 kcal on grass; time spent moving fell from about 45% to about 30% and idle time from 30% to under 10%.
+
+## F3 as built
+
+- **Sustainability sweep** (30,000 ticks, seeds 1 to 3, both animal-food modes, coverage 0.25x to 2x): at 1x and 2x nobody died in any run and late reserves were about 55 to 57%; at 0.5x nobody died either but reserves dipped as low as 16%; at 0.25x there were deaths, one seed with a famine of 186 deaths. **The default is therefore 1x (berries 4%, roots 3%, hare 8%, deer 2%)**, sparse but sustainable, and it can be raised from the world panel.
+- **Overgrazing is real but shows up in the animals, not the plants.** At 0.5x coverage 37% of hare patch tiles and 16% of deer patch tiles were emptied by hunting; berry and root patches stayed at 97 to 99% of capacity even after 30,000 ticks, because 20 Folk eat far less than regrows. Plant overgrazing needs more Folk, a poorer world, or slower regrowth (`plantRegrowthScale`).
+- **The food search now costs real time.** With food sparse, the nearest of every food type can be far, so each decision's walking-time search explores a large area: 100 to 350 microseconds per decision instead of about 1. That is fine at 20 Folk (about 640 ticks per second) but at 2,000 Folk the Folk phase is about 75 ms per tick. Shrinking the search budget helps only in proportion. The fix is F4: Folk consult remembered patches instead of searching the map.
+- **Patch reporting:** each snapshot records how many patch tiles each species has and how many are emptied (below 5% of capacity), per terrain (`terrain_resources.csv`), in the Stats panel and in the analysis (`patches`).
