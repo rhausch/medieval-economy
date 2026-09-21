@@ -13,6 +13,7 @@ CONFIG=configs/hard-times.json npm run dev
 
 - `default.json` lists every setting with its default value. It is generated: run `npm run config:default` after
   changing a default in the code (a test fails if they disagree). Use it as a reference; you never need to pass it.
+- `wide-params.json` widens every decider parameter range (used by the overnight genetic algorithm batch, where the range is the search space: `npm run evolve -- --config configs/wide-params.json`).
 - `hard-times.json` is a small example (a hungrier body, slower plant regrowth).
 - Collections (`goods`, `actions`, `species`, `deciders`) are keyed by name, for example
   `{ "actions": { "chase": { "kcalPerTick": 100 } } }`. Which goods, actions, species, deciders and terrains exist

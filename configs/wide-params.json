@@ -1,0 +1,80 @@
+{
+  "deciders": {
+    "utility": {
+      "params": {
+        "wNeed": {
+          "min": 0,
+          "max": 5
+        },
+        "wYield": {
+          "min": 0,
+          "max": 5
+        },
+        "wEffort": {
+          "min": 0,
+          "max": 5
+        },
+        "wRisk": {
+          "min": 0,
+          "max": 5
+        },
+        "wDistance": {
+          "min": 0,
+          "max": 5
+        },
+        "wRest": {
+          "min": 0,
+          "max": 5
+        },
+        "wWander": {
+          "min": 0,
+          "max": 2
+        },
+        "reserve": {
+          "min": 0,
+          "max": 15000
+        },
+        "wExplore": {
+          "min": 0,
+          "max": 5
+        },
+        "halfLife": {
+          "min": 100,
+          "max": 100000
+        },
+        "giveUp": {
+          "min": 0,
+          "max": 60
+        }
+      }
+    },
+    "rules": {
+      "params": {
+        "eatBelow": {
+          "min": 0,
+          "max": 1
+        },
+        "foodTarget": {
+          "min": 0,
+          "max": 15000
+        },
+        "riskTolerance": {
+          "min": 0,
+          "max": 1
+        },
+        "restIfInjured": {
+          "min": 0,
+          "max": 3
+        },
+        "giveUp": {
+          "min": 0,
+          "max": 60
+        },
+        "maxAge": {
+          "min": 100,
+          "max": 200000
+        }
+      }
+    }
+  }
+}

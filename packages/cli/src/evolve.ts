@@ -115,6 +115,7 @@ if (values.resume) {
         startCoverage: coverage,
         evolution,
         curriculum,
+        config: values.config ?? null,
         settingsHash: hashSettings(settings),
         params: specs.map((s) => s.key),
       },
