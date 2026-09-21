@@ -1,5 +1,5 @@
 import { defaultSettings, type Settings } from './config';
-import { DECIDERS, deciderByKey } from './deciders';
+import { DECIDERS, MAX_PARAMS, deciderByKey } from './deciders';
 import { createEcology, scaleRegrowth, stepEcology, type Ecology } from './ecology';
 import type { SimEvent } from './events';
 import { createFolkContext, stepFolk } from './folk/behaviour';
@@ -31,6 +31,11 @@ export interface SimConfig {
   spawnRandom?: boolean;
   /** A Folk that dies is replaced (true) or stays dead (false). */
   replaceDead?: boolean;
+  /**
+   * Parameter arrays to give Folk instead of random ones: Folk `i` gets `genomes[i % genomes.length]`,
+   * clamped to the decider's parameter ranges. Used by the genetic algorithm.
+   */
+  genomes?: readonly (readonly number[])[];
   /** Also emit a `move` event for every step (verbose; off by default). */
   emitMoves?: boolean;
   /** Also emit a `goal` event whenever a Folk sets out for somewhere (off by default). */
@@ -112,6 +117,14 @@ export function createSim(config: SimConfig): Sim {
   const mix = settings.folk.deciders.map((key) => DECIDERS.indexOf(deciderByKey(key)));
   for (let slot = 0; slot < folk.count; slot++) {
     const born = initFolk(folk, slot, world, rng, walkable, mix[slot % mix.length]!, settings);
+    const genome = config.genomes?.[slot % config.genomes.length];
+    if (genome) {
+      settings.deciders[mix[slot % mix.length]!]!.params.forEach((spec, i) => {
+        const value = Math.min(spec.max, Math.max(spec.min, genome[i] ?? spec.min));
+        folk.params[slot * MAX_PARAMS + i] = value;
+        born.params[i] = Number(value.toFixed(4));
+      });
+    }
     events.push({
       tick: 0,
       type: 'spawn',

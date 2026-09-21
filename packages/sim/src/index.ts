@@ -1,4 +1,14 @@
 export { createRng, type Rng } from './rng';
+export {
+  adjustCoverage,
+  evaluateGeneration,
+  nextGeneration,
+  randomGenome,
+  type Curriculum,
+  type Evaluation,
+  type EvaluationOptions,
+  type EvolutionOptions,
+} from './evolution';
 export { createSim, type Sim, type SimConfig } from './sim';
 export {
   ConfigError,
