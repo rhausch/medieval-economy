@@ -35,6 +35,7 @@ Planned in detail in `docs/foundation.md`.
 - [x] **F3: patchy food** (in review). Sparse clumped patches by species, realistic slow rates, viability and no seeding so grazed-out patches stay empty, the animal food experiment (separate wins), active-tile ecology updates, world panel controls, sustainability sweep.
 - [x] **F4: perception and memory** (in review). Per-species detection ranges (plants 1, animals 3) and terrain range 10, blackboard sightings with age, explored map and fog-of-war view, explore option, deciders choosing among remembered places, giving-up density and memory half-life as parameters.
 - [x] **Solo Folk** (in review). Each Folk starts alone at a random place, optional no-replacement runs, survival analysis; rules 100% vs utility 99% survive at default food, 94% vs 47% at a quarter of the food.
+- [x] **Genetic algorithm** (in review). Evolves a decider's parameter array over solo Folk with no respawn and food lowered as they improve; first run reaches 0.12x food coverage at 50% survival for utility and 0.17x for rules.
 - [ ] **F5: tune and evaluate.** Sweeps across seeds, rules versus utility, shared versus separate animal food, decide on a first genetic algorithm run.
 
 ## Later (candidates)
