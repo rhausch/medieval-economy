@@ -63,7 +63,11 @@ The Folk that balances these costs is doing optimal foraging: leave a patch when
 - The decider only runs again when the goal is reached or becomes invalid (the food is gone), or an **interrupt** fires: the reserve crosses a threshold, something better is sighted, or the path is blocked. This is what keeps decisions few and cheap.
 - One giant multi-tick "walk there" action was rejected: it cannot be interrupted, cannot adapt its cost to terrain, and hides the goal from the inspector.
 
-**Gaits and speed:** walking is 1 m/s (1 tile per tick in the open), a jog about 2.5 m/s and a run about 4 m/s. A Folk covers several tiles in a tick at speed, accumulating fractional progress. Faster gaits cost more per tile; a chase is the sprint. Terrain scales speed (defaults: sand 0.8, grass 1.0, forest 0.7, hills 0.6) and calorie cost (forest 1.3, hills 1.4), and slope adds cost and slows using the elevation we already have (the elevation range in metres is a config value, default 1,500 m). Water and mountains stay impassable for now.
+**Speed and terrain (as built in F2):** Folk walk at one speed. Terrain scales it (defaults: sand 0.8, grass 1.0, forest 0.7, hills 0.6 tiles per tick) and slope divides it further: a grade g (rise over run, from the elevation we already have, with elevation 0 to 1 spanning 1,500 m) divides speed by 1 + 4g. Because a Folk burns calories every tick it is walking, slower ground costs more per tile automatically (forest is about 1.4 times, hills about 1.7 times), and climbing adds 0.65 kcal per metre on top. Water and mountains stay impassable. **Gaits (jog, run) are deferred:** we are not yet convinced they would add anything to the simulation; the exception would be a chase, which can be revisited with big-game hunting.
+
+**Routes** are chosen by walking time, not tile count (a Dijkstra search), so the nearest food is the one that takes least time to reach and a Folk goes around slow ground when that is quicker.
+
+**Interrupts** are decided by each decider (`shouldInterrupt`), asked between steps: would you rather reconsider now? Rules Folk say yes when carrying food below their own eating level; utility Folk when in the emergency zone with food. An interrupt therefore always leads to a different decision (a meal), which is tested. A goal is also dropped when the place it was heading for runs out. A cooldown stops loops. "Something better was sighted" comes with perception in F4.
 
 ## Perception and the blackboard
 
@@ -124,3 +128,12 @@ Each ends in something to play with, followed by feedback.
 - **Energy ledger:** calories eaten, and calories burned as baseline, healing and per activity, per decider (`ledger.csv`, `activity.csv`), and per Folk (`lifetimes.csv`); shown in the Stats panel and analysis.
 - **Deciders reworked:** rules eat below a reserve share, rest when hurt, restock a food target in kcal, and never chase big game while starving. Utility scores net kcal per tick (soft-saturated), a food motive that falls to almost nothing once enough is carried, effort, risk and distance, with two guarantees that no personality can switch off: an emergency term so eating beats anything when the reserve is low, and a survival bonus so a hungry Folk short of food always forages. Both were found by tracing Folk that starved with food in their pocket or wandered until they died, and are covered by tests.
 - **Dense-food baseline (what F3 will change):** with food everywhere, Folk sit at about 45 to 70% reserve with no deaths. Walking is the biggest calorie cost, and utility Folk take almost all their food from snaring hare, since a hare is worth about 1,100 kcal expected per attempt against about 300 for a handful of berries.
+
+## F2 as built
+
+- **Blackboard goal:** the goal (what, where, when chosen, and the path with how far along) lives on the Folk and is shown in the inspector, with the path and target drawn on the map for the selected Folk. A Folk decides only when it has no goal, when it arrives, or when interrupted. Decisions fell from about 0.9 to about 0.16 per Folk per tick.
+- **Wandering is a goal:** a Folk with nothing to do strolls to a random spot within 6 tiles as a short goal, or stands still for 4 ticks, instead of taking one random step per decision.
+- **Fractional steps:** a step over slow ground takes a fractional number of ticks, and the fraction carries into the next action, so average speed is exact (tested) instead of rounded up.
+- **Search:** one walking-time search per decision finds, for every foraging option, the quickest place, the ticks to get there and the calories it costs; utility scores use those directly.
+- **Tracking:** walking by terrain (steps, ticks per step, calories per step) in `travel.csv`, the Stats panel and the analysis; goals and interrupts per Folk in `lifetimes.csv`; interrupt events always logged, goal events with `--goals`.
+- **Observed:** on the dense-food world about 70% of steps are through forest (1.5 to 1.6 ticks per step and about 37 kcal per step) against 1.1 ticks and 26 kcal on grass; time spent moving fell from about 45% to about 30% and idle time from 30% to under 10%.

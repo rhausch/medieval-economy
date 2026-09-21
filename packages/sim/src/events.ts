@@ -72,4 +72,27 @@ export type SimEvent =
       y: number;
       fromX: number;
       fromY: number;
+    }
+  | {
+      tick: number;
+      type: 'goal';
+      folk: number;
+      x: number;
+      y: number;
+      /** What the Folk set out to do, and the tile it is heading for. */
+      option: string;
+      targetX: number;
+      targetY: number;
+      /** Estimated ticks of walking to get there. */
+      ticks: number;
+    }
+  | {
+      tick: number;
+      type: 'interrupt';
+      folk: number;
+      x: number;
+      y: number;
+      option: string;
+      /** Why the Folk dropped its goal on the way. */
+      reason: 'hungry' | 'depleted';
     };

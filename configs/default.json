@@ -19,6 +19,17 @@
     "eating": 4,
     "resting": -0.8
   },
+  "movement": {
+    "elevationRangeM": 1500,
+    "slopeSlowdown": 4,
+    "climbKcalPerMeter": 0.65,
+    "terrainSpeed": {
+      "sand": 0.8,
+      "grass": 1,
+      "forest": 0.7,
+      "hills": 0.6
+    }
+  },
   "injury": {
     "durationMultiplier": [1, 2, 10],
     "healKcalPerTick": [0, 6, 20],
@@ -29,8 +40,11 @@
   "folk": {
     "count": 20,
     "carryCapacityKg": 20,
-    "searchDepth": 60,
+    "searchTicks": 90,
     "idleChance": 0.4,
+    "idleTicks": 4,
+    "wanderRadius": 6,
+    "interruptCooldown": 10,
     "restTicks": 3,
     "spawnRadius": 5,
     "settlementCandidates": 60,

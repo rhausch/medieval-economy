@@ -162,6 +162,15 @@ describe('startRun', () => {
     expect(read('food_sources.csv').length).toBeGreaterThan(1);
     expect(read('consumption.csv')[0]).toEqual(['tick', 'decider', 'good', 'kg', 'kcal']);
 
+    const travel = read('travel.csv');
+    expect(travel[0]).toEqual(['tick', 'decider', 'terrain', 'steps', 'ticks', 'kcal']);
+    const walked = travel.filter((r) => r[0] === '400');
+    expect(walked.length).toBeGreaterThan(0);
+    for (const row of walked) {
+      // A step never takes less than a tick (terrain only slows walking down).
+      expect(Number(row[4])).toBeGreaterThanOrEqual(Number(row[3]) - 1e-6);
+    }
+
     const lifetimes = read('lifetimes.csv');
     expect(lifetimes[0]!.slice(0, 8)).toEqual([
       'id',
@@ -175,6 +184,8 @@ describe('startRun', () => {
     ]);
     expect(lifetimes[0]).toContain('kcalEaten');
     expect(lifetimes[0]).toContain('kcalSpent');
+    expect(lifetimes[0]).toContain('goals');
+    expect(lifetimes[0]).toContain('interrupts');
     expect(lifetimes[0]).toContain('p7');
     expect(lifetimes.length - 1).toBe(4);
     for (const row of lifetimes.slice(1)) expect(row).toHaveLength(lifetimes[0]!.length);

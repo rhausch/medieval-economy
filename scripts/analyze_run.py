@@ -14,6 +14,7 @@ What it answers, for tuning the world and the behaviours:
   time_by_action      how each decider's Folk spend their time
   calorie_ledger      calories in and out: eaten, baseline, healing and each activity
   reserve             calorie reserves over time
+  movement            where Folk walk, how fast (ticks per step) and what it costs
   food_sources        where calories come from: species, terrain, success rate
   lifetimes           per-Folk outcomes with the decider parameters (fitness data for a GA)
   performance         decision and tick timings
@@ -119,6 +120,19 @@ def calorie_ledger(run: Run) -> pd.DataFrame:
     burn = out["direction"] == "out"
     out.loc[burn, "share_of_burn"] = out[burn]["kcal"] / out[burn].groupby("decider")["kcal"].transform("sum")
     return out
+
+
+def movement(run: Run) -> pd.DataFrame:
+    """Walking over the whole run, by terrain of the tile stepped onto (all deciders together).
+
+    ticks_per_step is 1 on open ground at walking speed and higher on slow ground or slopes;
+    kcal_per_step includes climbing.
+    """
+    df = _final(run.csv("travel.csv")).groupby("terrain")[["steps", "ticks", "kcal"]].sum()
+    df["share_of_steps"] = df["steps"] / df["steps"].sum()
+    df["ticks_per_step"] = df["ticks"] / df["steps"]
+    df["kcal_per_step"] = df["kcal"] / df["steps"]
+    return df.sort_values("steps", ascending=False)
 
 
 def reserve_over_time(run: Run) -> pd.DataFrame:
@@ -260,6 +274,22 @@ def plot_calories(run: Run) -> plt.Figure:
     return fig
 
 
+def plot_movement(run: Run) -> plt.Figure:
+    """Share of steps by terrain, and how long a step takes there."""
+    df = movement(run)
+    colors = [TERRAIN_COLORS.get(t) for t in df.index]
+    fig, axes = plt.subplots(1, 3, figsize=(11, 3))
+    axes[0].bar(df.index, df["share_of_steps"], color=colors)
+    axes[0].set(title="Share of steps")
+    axes[1].bar(df.index, df["ticks_per_step"], color=colors)
+    axes[1].axhline(1, color="#888", lw=0.8)
+    axes[1].set(title="Ticks per step (1 = a tile a tick)")
+    axes[2].bar(df.index, df["kcal_per_step"], color=colors)
+    axes[2].set(title="Calories per step")
+    fig.tight_layout()
+    return fig
+
+
 def plot_reserve(run: Run) -> plt.Figure:
     """Mean, minimum and maximum calorie reserve over time, per decider."""
     df = reserve_over_time(run)
@@ -311,6 +341,7 @@ PLOTS = {
     "time_by_action": plot_time_by_action,
     "calories": plot_calories,
     "reserve": plot_reserve,
+    "movement": plot_movement,
     "food_sources": plot_food_sources,
     "lifetimes": plot_lifetimes,
 }
@@ -333,11 +364,13 @@ def report(run: Run, out: Path | None = None) -> Path:
     print(src.groupby(["decider", "species"])[["attempts", "successes", "kg", "kcal"]].sum())
     print("\n== where calories come from (by terrain) ==")
     print(src.groupby(["decider", "terrain"])["kcal"].sum().unstack(0))
+    print("\n== walking by terrain ==")
+    print(movement(run)[["steps", "share_of_steps", "ticks_per_step", "kcal_per_step"]])
     print("\n== food fill by terrain, last snapshot ==")
     print(_final(terrain_fill(run)).pivot(index="terrain", columns="species", values="fill"))
     life = lifetimes(run)
     print("\n== per-Folk outcomes by decider ==")
-    print(life.groupby("decider")[["lived", "meals", "kcal_in_per_tick", "kcal_out_per_tick", "net_kcal_per_tick", "injuries"]].mean())
+    print(life.groupby("decider")[["lived", "meals", "kcal_in_per_tick", "kcal_out_per_tick", "net_kcal_per_tick", "injuries", "goals", "interrupts"]].mean())
     effects = parameter_effects(run)
     if len(effects):
         print("\n== parameter correlation with calories eaten and with net calories, per tick ==")

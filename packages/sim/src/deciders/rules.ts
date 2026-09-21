@@ -48,4 +48,8 @@ export const RULES: DeciderDef = {
     }
     choose(OPTION.wander);
   },
+  /** It would eat right now: it carries food and is below its own eating level. */
+  shouldInterrupt(s: Senses): boolean {
+    return s.foodKcal > 0 && s.reserve / s.capacity < param(s, P.eatBelow);
+  },
 };

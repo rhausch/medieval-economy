@@ -19,6 +19,7 @@ import {
   speciesTotals,
   summarize,
   terrainResources,
+  travelRows,
   type Sim,
   type SimEvent,
 } from '@folk/sim';
@@ -140,6 +141,7 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
       params: d.params.map((p) => ({ key: p.key, label: p.label, min: p.min, max: p.max })),
     })),
     emitMoves: sim.config.emitMoves ?? false,
+    emitGoals: sim.config.emitGoals ?? false,
     snapshotInterval,
     metricsInterval,
     timed: sim.perf !== null,
@@ -175,6 +177,7 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
     'tick,decider,species,terrain,attempts,successes,kg,kcal',
   );
   const consumption = new Buffered(join(dir, 'consumption.csv'), 'tick,decider,good,kg,kcal');
+  const travel = new Buffered(join(dir, 'travel.csv'), 'tick,decider,terrain,steps,ticks,kcal');
   const lifetimes = new Buffered(
     join(dir, 'lifetimes.csv'),
     [
@@ -229,6 +232,9 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
     }
     for (const r of consumptionRows(sim.metrics)) {
       consumption.write(`${tick},${r.decider},${r.good},${num(r.kg)},${num(r.kcal)}\n`);
+    }
+    for (const r of travelRows(sim.metrics)) {
+      travel.write(`${tick},${r.decider},${r.terrain},${r.steps},${num(r.ticks)},${num(r.kcal)}\n`);
     }
   };
   const writeLifetime = (
@@ -318,6 +324,7 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
       ledger.close();
       sources.close();
       consumption.close();
+      travel.close();
       lifetimes.close();
       writeFileSync(
         manifestPath,

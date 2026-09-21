@@ -45,6 +45,7 @@ describe.skipIf(!hasPython)('scripts/analyze_run.py', () => {
       'time_by_action',
       'calories',
       'reserve',
+      'movement',
       'food_sources',
       'lifetimes',
     ]) {

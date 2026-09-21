@@ -5,6 +5,7 @@ import type {
   SimEvent,
   SourceRow,
   WorldParams,
+  TravelRow,
 } from '@folk/sim';
 
 export interface TerrainInfo {
@@ -89,6 +90,7 @@ export interface StatsMessage {
   /** Cumulative since the run began. */
   activity: ActivityRow[];
   ledger: LedgerRow[];
+  travel: TravelRow[];
   sources: SourceRow[];
   consumption: ConsumptionRow[];
 }
@@ -164,6 +166,16 @@ export interface FolkDetailMessage {
     injuryName: string;
     /** Ticks until the injury heals one level (0 if uninjured). */
     injuryRemaining: number;
+    /** The goal on the Folk's blackboard, and the path it still has to walk (null when it has none). */
+    goal: {
+      option: string;
+      targetX: number;
+      targetY: number;
+      /** Ticks since the goal was chosen, and steps of the path still to walk. */
+      age: number;
+      stepsLeft: number;
+      path: { x: number; y: number }[];
+    } | null;
     /** What the last decision chose, and the score of each option it could pick (utility only). */
     chosen: string;
     scores: { option: string; score: number }[];

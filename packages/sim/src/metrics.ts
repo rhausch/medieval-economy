@@ -18,6 +18,8 @@ export const COUNTER_NAMES = [
   'successes',
   'injuries',
   'steps',
+  'goals',
+  'interrupts',
 ] as const;
 export const COUNTER = Object.fromEntries(COUNTER_NAMES.map((name, i) => [name, i])) as Record<
   (typeof COUNTER_NAMES)[number],
@@ -50,9 +52,14 @@ export interface Metrics {
   readonly sources: Float64Array;
   /** What was eaten: [decider][good][kg, kcal] (this is the calories in). */
   readonly eaten: Float64Array;
+  /** Where Folk walked: [decider][terrain of the tile stepped onto][steps, ticks taken, kcal walking]. */
+  readonly travel: Float64Array;
   /** Per-Folk counters: [slot][COUNTER]. */
   readonly folk: Float64Array;
 }
+
+/** Fields recorded for walking on each terrain. */
+export const TRAVEL_FIELDS = ['steps', 'ticks', 'kcal'] as const;
 
 /** Ledger columns: baseline and healing first, then one column per action label. */
 export const LEDGER_BASELINE = 0;
@@ -66,6 +73,7 @@ export function createMetrics(folkCount: number): Metrics {
     ledger: new Float64Array(D * LEDGER_SIZE),
     sources: new Float64Array(D * S * T * SOURCE_FIELDS.length),
     eaten: new Float64Array(D * G * 2),
+    travel: new Float64Array(D * T * TRAVEL_FIELDS.length),
     folk: new Float64Array(folkCount * COUNTER_COUNT),
   };
 }
@@ -75,6 +83,8 @@ export const ledgerIndex = (decider: number, column: number): number =>
   decider * LEDGER_SIZE + column;
 export const sourceIndex = (decider: number, species: number, terrain: number): number =>
   ((decider * S + species) * T + terrain) * SOURCE_FIELDS.length;
+export const travelIndex = (decider: number, terrain: number): number =>
+  (decider * T + terrain) * TRAVEL_FIELDS.length;
 export const eatenIndex = (decider: number, good: number): number => (decider * G + good) * 2;
 
 /** One Folk's lifetime counters as a name to value record. */
@@ -191,6 +201,35 @@ export function consumptionRows(metrics: Metrics): ConsumptionRow[] {
         good: good.key,
         kg: metrics.eaten[i]!,
         kcal: metrics.eaten[i + 1]!,
+      });
+    });
+  });
+  return rows;
+}
+
+export interface TravelRow {
+  decider: string;
+  terrain: string;
+  steps: number;
+  /** Ticks those steps took: more than the number of steps on slow ground. */
+  ticks: number;
+  /** Calories burned walking them (time at the walking rate plus climbing). */
+  kcal: number;
+}
+
+/** Rows for terrain that was walked on. */
+export function travelRows(metrics: Metrics): TravelRow[] {
+  const rows: TravelRow[] = [];
+  DECIDERS.forEach((decider, d) => {
+    TERRAIN_LIST.forEach((terrain, t) => {
+      const i = travelIndex(d, t);
+      if (metrics.travel[i]! === 0) return;
+      rows.push({
+        decider: decider.key,
+        terrain: terrain.key,
+        steps: metrics.travel[i]!,
+        ticks: metrics.travel[i + 1]!,
+        kcal: metrics.travel[i + 2]!,
       });
     });
   });

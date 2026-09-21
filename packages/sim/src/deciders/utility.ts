@@ -1,6 +1,12 @@
 import { OPTION, OPTION_COUNT } from '../data/actions';
 import { param, type DeciderDef, type Intent, type Senses } from './types';
 
+/** Below this share of the reserve (hunger above 0.6) eating beats everything else in the scoring. */
+const EMERGENCY_HUNGER = 0.6;
+
+/** The score eating gets in an emergency, above anything else an option can reach. */
+const EMERGENCY_SCORE = 100;
+
 const P = { need: 0, yield: 1, effort: 2, risk: 3, distance: 4, rest: 5, wander: 6, reserve: 7 };
 
 /**
@@ -37,15 +43,16 @@ export const UTILITY: DeciderDef = {
     const survival = 4 * Math.max(0, hunger - 0.3) * (1 - carriedFill);
 
     if (s.foodKcal > 0 && s.reserve < 0.95 * s.capacity) {
-      // Eating wins once the reserve is low. The emergency term makes it beat everything else whatever
-      // the Folk's personality: nobody starves with food in their pocket.
-      scores[OPTION.eat] = param(s, P.need) * 2.5 * (hunger - 0.25) + 5 * Math.max(0, hunger - 0.6);
+      scores[OPTION.eat] = param(s, P.need) * 2.5 * (hunger - 0.25);
+      // In an emergency eating outranks everything, whatever the Folk's personality: nobody starves with
+      // food in their pocket. `shouldInterrupt` uses the same threshold, so an interrupt always leads to a meal.
+      if (hunger > EMERGENCY_HUNGER) scores[OPTION.eat] = EMERGENCY_SCORE;
     }
 
     for (const def of s.settings.actions) {
       const tile = s.targetTile[def.option]!;
       if (tile < 0 || s.roomKg < 0.5) continue;
-      const dist = s.targetDist[def.option]!;
+      const walkTicks = s.targetTicks[def.option]!;
       const m = s.durationMultiplier;
       const skill = def.skill === 'foraging' ? s.foraging : s.hunting;
       const kg =
@@ -54,10 +61,10 @@ export const UTILITY: DeciderDef = {
           : Math.min(skills.maxSuccess, def.baseSuccess + skills.successBonus * skill) *
             Math.min(def.yield, s.roomKg);
       const gain = kg * kcalPerKg(def.good);
-      const travelTicks = dist * m;
+      const travelTicks = walkTicks * m;
       const workTicks = Math.ceil(def.ticks * m);
-      // Calories burned above baseline by the walk and the work.
-      const cost = travelTicks * s.settings.activity.moving + workTicks * def.kcalPerTick;
+      // Calories burned above baseline by the walk (including climbing) and the work.
+      const cost = s.targetKcal[def.option]! * m + workTicks * def.kcalPerTick;
       const rate = (gain - cost) / (travelTicks + workTicks);
       const risk = (def.minorInjury + 4 * def.seriousInjury) * (1 + hunger);
       scores[def.option] =
@@ -65,7 +72,7 @@ export const UTILITY: DeciderDef = {
         param(s, P.yield) * (rate / (100 + Math.abs(rate))) * motive -
         (param(s, P.effort) * cost) / 1000 -
         param(s, P.risk) * risk * 2 -
-        (param(s, P.distance) * dist) / 40;
+        (param(s, P.distance) * walkTicks) / 40;
     }
 
     scores[OPTION.rest] = s.injury > 0 ? param(s, P.rest) * 0.5 * s.injury * (1 - hunger) : 0;
@@ -82,5 +89,9 @@ export const UTILITY: DeciderDef = {
     }
     out.option = best;
     out.tile = s.targetTile[best] ?? -1;
+  },
+  /** In the emergency zone with food in the pack: stop and eat. */
+  shouldInterrupt(s: Senses): boolean {
+    return s.foodKcal > 0 && 1 - s.reserve / s.capacity > EMERGENCY_HUNGER;
   },
 };

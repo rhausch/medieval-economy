@@ -22,6 +22,7 @@ const { values } = parseArgs({
     'snapshot-interval': { type: 'string', default: '10' },
     'metrics-interval': { type: 'string', default: '100' },
     moves: { type: 'boolean', default: false },
+    goals: { type: 'boolean', default: false },
     log: { type: 'boolean', default: true },
   },
 });
@@ -44,6 +45,7 @@ const sim = createSim({
   ...(values.regrowth ? { plantRegrowthScale: Number(values.regrowth) } : {}),
   ...(values.deciders ? { deciders: values.deciders.split(',') } : {}),
   emitMoves: values.moves,
+  emitGoals: values.goals,
   timer: () => performance.now(),
 });
 

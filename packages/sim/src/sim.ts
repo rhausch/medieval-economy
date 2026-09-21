@@ -25,6 +25,8 @@ export interface SimConfig {
   deciders?: string[];
   /** Also emit a `move` event for every step (verbose; off by default). */
   emitMoves?: boolean;
+  /** Also emit a `goal` event whenever a Folk sets out for somewhere (off by default). */
+  emitGoals?: boolean;
   /** Clock for timing (e.g. `performance.now`). The sim never reads a clock itself; without one, no timing is recorded. */
   timer?: () => number;
 }
@@ -102,6 +104,7 @@ export function createSim(config: SimConfig): Sim {
     rng,
     events,
     config.emitMoves ?? false,
+    config.emitGoals ?? false,
   );
   const interval = settings.ecology.interval;
   let tick = 0;
