@@ -1,0 +1,4 @@
+{
+  "body": { "baselineKcalPerTick": 10.5, "reserveCapacity": 9000 },
+  "ecology": { "plantRegrowthScale": 0.3 }
+}

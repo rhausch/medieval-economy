@@ -11,6 +11,8 @@ const ACTION_COLORS: Record<string, string> = {
   digging: '#d98a3d',
   snaring: '#dfe6ee',
   chasing: '#8a5a32',
+  baseline: '#8d6e63',
+  healing: '#d05050',
 };
 
 const hex = (color: number): string => `#${color.toString(16).padStart(6, '0')}`;
@@ -92,8 +94,8 @@ export function createStatsView(root: HTMLElement): StatsView {
     ['perf', 'Performance', true],
     ['food', 'Food by terrain', true],
     ['time', 'Time by action', false],
-    ['energy', 'Energy spent by action', false],
-    ['sources', 'Where food comes from', false],
+    ['energy', 'Calories in and out', false],
+    ['sources', 'Where calories come from', false],
   ] as const) {
     const details = el('details');
     details.open = open;
@@ -166,7 +168,7 @@ export function createStatsView(root: HTMLElement): StatsView {
         }),
       ]);
     const carried = Object.entries(msg.carried)
-      .map(([good, units]) => `${good} ${units.toFixed(0)}`)
+      .map(([good, units]) => `${good} ${units.toFixed(0)} kg`)
       .join(', ');
     set(
       'food',
@@ -176,19 +178,60 @@ export function createStatsView(root: HTMLElement): StatsView {
     );
   }
 
-  function byDecider(key: 'folkTicks' | 'energySpent', msg: StatsMessage): HTMLElement {
+  function timeByAction(msg: StatsMessage): HTMLElement {
     const box = el('div');
     for (const d of deciders) {
-      const mine = msg.activity.filter((r) => r.decider === d.key);
-      const items = mine
-        .map((r) => ({ label: r.action, value: r[key], color: ACTION_COLORS[r.action] ?? '#888' }))
+      const items = msg.activity
+        .filter((r) => r.decider === d.key)
+        .map((r) => ({
+          label: r.action,
+          value: r.folkTicks,
+          color: ACTION_COLORS[r.action] ?? '#888',
+        }))
         .filter((i) => i.value > 0)
         .sort((a, b) => b.value - a.value);
-      const total = items.reduce((sum, i) => sum + i.value, 0);
       box.append(deciderTitle(d.key));
       box.append(items.length > 0 ? bars(items) : el('div', 'muted small', 'No data yet.'));
-      if (key === 'energySpent')
-        box.append(el('div', 'muted small', `Total spent: ${compact(total)}`));
+    }
+    return box;
+  }
+
+  /** Calories burned by category (baseline, healing, each activity above baseline), and calories eaten. */
+  function calories(msg: StatsMessage): HTMLElement {
+    const box = el('div');
+    for (const d of deciders) {
+      const ledger = msg.ledger.filter((r) => r.decider === d.key);
+      const eaten = ledger.find((r) => r.category === 'eaten')?.kcal ?? 0;
+      const items = [
+        ...ledger
+          .filter((r) => r.category !== 'eaten')
+          .map((r) => ({
+            label: r.category,
+            value: r.kcal,
+            color: ACTION_COLORS[r.category] ?? '#888',
+          })),
+        ...msg.activity
+          .filter((r) => r.decider === d.key)
+          .map((r) => ({
+            label: r.action,
+            value: r.kcal,
+            color: ACTION_COLORS[r.action] ?? '#888',
+          })),
+      ]
+        .filter((i) => i.value > 0)
+        .sort((a, b) => b.value - a.value);
+      const burned =
+        ledger.filter((r) => r.category !== 'eaten').reduce((sum, r) => sum + r.kcal, 0) +
+        msg.activity.filter((r) => r.decider === d.key).reduce((sum, r) => sum + r.kcal, 0);
+      box.append(deciderTitle(d.key));
+      box.append(items.length > 0 ? bars(items) : el('div', 'muted small', 'No data yet.'));
+      box.append(
+        el(
+          'div',
+          'muted small',
+          `Eaten ${compact(eaten)} kcal · burned ${compact(burned)} kcal · balance ${burned > 0 ? percent(eaten / burned) : '-'} of burn`,
+        ),
+      );
     }
     return box;
   }
@@ -204,32 +247,32 @@ export function createStatsView(root: HTMLElement): StatsView {
           const rows = mine.filter((r) => r.species === s.key);
           const attempts = rows.reduce((sum, r) => sum + r.attempts, 0);
           const successes = rows.reduce((sum, r) => sum + r.successes, 0);
-          const satiety = rows.reduce((sum, r) => sum + r.satiety, 0);
-          return { s, attempts, successes, satiety };
+          const kcal = rows.reduce((sum, r) => sum + r.kcal, 0);
+          return { s, attempts, successes, kcal };
         })
         .filter((x) => x.attempts > 0);
-      const total = bySpecies.reduce((sum, x) => sum + x.satiety, 0);
+      const total = bySpecies.reduce((sum, x) => sum + x.kcal, 0);
       box.append(
         bars(
           bySpecies.map((x) => ({
             label: x.s.name,
-            value: x.satiety,
+            value: x.kcal,
             color: hex(x.s.color),
-            note: `${percent(total > 0 ? x.satiety / total : 0)} · ${percent(x.successes / x.attempts)} ok`,
+            note: `${percent(total > 0 ? x.kcal / total : 0)} · ${percent(x.successes / x.attempts)} ok`,
           })),
         ),
       );
       const terrains = [...new Set(mine.map((r) => r.terrain))]
         .map((t) => ({
           label: t,
-          value: mine.filter((r) => r.terrain === t).reduce((sum, r) => sum + r.satiety, 0),
+          value: mine.filter((r) => r.terrain === t).reduce((sum, r) => sum + r.kcal, 0),
           color: terrainColors.get(t) ?? '#888',
         }))
         .sort((a, b) => b.value - a.value);
       box.append(el('div', 'muted small', 'By terrain:'), bars(terrains));
     }
     const eaten = el('div', 'muted small');
-    eaten.textContent = `Eaten: ${msg.consumption.map((r) => `${deciderName(r.decider)} ${r.good} ${compact(r.units)}`).join(' · ') || 'nothing yet'}`;
+    eaten.textContent = `Eaten: ${msg.consumption.map((r) => `${deciderName(r.decider)} ${r.good} ${compact(r.kg)} kg`).join(' · ') || 'nothing yet'}`;
     set('sources', box.childNodes.length > 0 ? box : 'No foraging yet.', eaten);
   }
 
@@ -242,8 +285,8 @@ export function createStatsView(root: HTMLElement): StatsView {
     update(msg) {
       perf(msg);
       food(msg);
-      set('time', byDecider('folkTicks', msg));
-      set('energy', byDecider('energySpent', msg));
+      set('time', timeByAction(msg));
+      set('energy', calories(msg));
       sources(msg);
     },
   };

@@ -1,0 +1,242 @@
+{
+  "units": {
+    "tickMinutes": 6,
+    "tileMeters": 360
+  },
+  "body": {
+    "baselineKcalPerTick": 7.9,
+    "reserveCapacity": 15000,
+    "startReserveFraction": {
+      "min": 0.5,
+      "max": 0.7
+    },
+    "maxIntakeKcalPerTick": 300,
+    "mealKcal": 1500
+  },
+  "activity": {
+    "idle": 2,
+    "moving": 20,
+    "eating": 4,
+    "resting": -0.8
+  },
+  "injury": {
+    "durationMultiplier": [1, 2, 10],
+    "healKcalPerTick": [0, 6, 20],
+    "healTicks": [0, 300, 400],
+    "restHealFactor": 2,
+    "deathChancePerTick": [0, 0, 0]
+  },
+  "folk": {
+    "count": 20,
+    "carryCapacityKg": 20,
+    "searchDepth": 60,
+    "idleChance": 0.4,
+    "restTicks": 3,
+    "spawnRadius": 5,
+    "settlementCandidates": 60,
+    "settlementScoreRadius": 6,
+    "settlementWaterDistance": 4,
+    "deciders": ["rules", "utility"]
+  },
+  "skills": {
+    "gain": 0.004,
+    "yieldBonus": 1,
+    "successBonus": 0.4,
+    "maxSuccess": 0.95
+  },
+  "goods": {
+    "berries": {
+      "kcalPerKg": 500
+    },
+    "roots": {
+      "kcalPerKg": 1200
+    },
+    "meat": {
+      "kcalPerKg": 1500
+    }
+  },
+  "actions": {
+    "gather": {
+      "ticks": 4,
+      "kcalPerTick": 16,
+      "minStock": 5,
+      "yield": 0.6,
+      "baseSuccess": 1,
+      "minorInjury": 0,
+      "seriousInjury": 0
+    },
+    "dig": {
+      "ticks": 12,
+      "kcalPerTick": 36,
+      "minStock": 10,
+      "yield": 1.6,
+      "baseSuccess": 1,
+      "minorInjury": 0.03,
+      "seriousInjury": 0
+    },
+    "snare": {
+      "ticks": 5,
+      "kcalPerTick": 16,
+      "minStock": 1,
+      "yield": 1.5,
+      "baseSuccess": 0.5,
+      "minorInjury": 0,
+      "seriousInjury": 0
+    },
+    "chase": {
+      "ticks": 20,
+      "kcalPerTick": 87,
+      "minStock": 1,
+      "yield": 45,
+      "baseSuccess": 0.5,
+      "minorInjury": 0.15,
+      "seriousInjury": 0.05
+    }
+  },
+  "species": {
+    "berries": {
+      "color": 11553436,
+      "maxCapacity": 100,
+      "terrainAffinity": {
+        "forest": 0.9,
+        "grass": 0.6,
+        "hills": 0.3,
+        "sand": 0.05
+      },
+      "moisture": {
+        "optimum": 0.6,
+        "tolerance": 0.9
+      },
+      "growthRate": 0.08,
+      "seedRate": 0.01,
+      "diffusionRate": 0.02
+    },
+    "roots": {
+      "color": 14256701,
+      "maxCapacity": 150,
+      "terrainAffinity": {
+        "forest": 1,
+        "hills": 0.6,
+        "grass": 0.4
+      },
+      "moisture": {
+        "optimum": 0.5,
+        "tolerance": 1
+      },
+      "growthRate": 0.03,
+      "seedRate": 0.003,
+      "diffusionRate": 0.005
+    },
+    "hare": {
+      "color": 15921906,
+      "maxCapacity": 10,
+      "terrainAffinity": {
+        "grass": 1,
+        "forest": 0.5,
+        "hills": 0.4,
+        "sand": 0.1
+      },
+      "moisture": {
+        "optimum": 0.5,
+        "tolerance": 1
+      },
+      "growthRate": 0.15,
+      "seedRate": 0,
+      "diffusionRate": 0.08,
+      "intake": 0.15,
+      "starvationRate": 0.1
+    },
+    "deer": {
+      "color": 5913120,
+      "maxCapacity": 4,
+      "terrainAffinity": {
+        "forest": 1,
+        "grass": 0.6,
+        "hills": 0.5
+      },
+      "moisture": {
+        "optimum": 0.5,
+        "tolerance": 1
+      },
+      "growthRate": 0.05,
+      "seedRate": 0,
+      "diffusionRate": 0.1,
+      "intake": 0.5,
+      "starvationRate": 0.04
+    }
+  },
+  "deciders": {
+    "rules": {
+      "params": {
+        "eatBelow": {
+          "min": 0.15,
+          "max": 0.7
+        },
+        "foodTarget": {
+          "min": 1500,
+          "max": 12000
+        },
+        "riskTolerance": {
+          "min": 0,
+          "max": 1
+        },
+        "restIfInjured": {
+          "min": 0,
+          "max": 2
+        }
+      }
+    },
+    "utility": {
+      "params": {
+        "wNeed": {
+          "min": 0.2,
+          "max": 2
+        },
+        "wYield": {
+          "min": 0.2,
+          "max": 2
+        },
+        "wEffort": {
+          "min": 0,
+          "max": 2
+        },
+        "wRisk": {
+          "min": 0,
+          "max": 2
+        },
+        "wDistance": {
+          "min": 0,
+          "max": 2
+        },
+        "wRest": {
+          "min": 0.2,
+          "max": 2
+        },
+        "wWander": {
+          "min": 0,
+          "max": 0.5
+        },
+        "reserve": {
+          "min": 1500,
+          "max": 12000
+        }
+      }
+    }
+  },
+  "ecology": {
+    "plantRegrowthScale": 1,
+    "interval": 1
+  },
+  "world": {
+    "seed": 1,
+    "width": 256,
+    "height": 256,
+    "noiseScale": 200,
+    "octaves": 6,
+    "waterFraction": 0.3,
+    "beachFraction": 0.03,
+    "hillFraction": 0.2,
+    "mountainFraction": 0.06,
+    "forestFraction": 0.4
+  }
+}

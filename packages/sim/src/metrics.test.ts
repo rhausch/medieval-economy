@@ -9,6 +9,7 @@ import {
   activityRows,
   carriedTotals,
   consumptionRows,
+  ledgerRows,
   sourceRows,
   terrainResources,
 } from './metrics';
@@ -82,6 +83,9 @@ describe('timing in the sim', () => {
 });
 
 describe('metrics', () => {
+  const goodOf = (species: string): string =>
+    species === 'hare' || species === 'deer' ? 'meat' : species;
+
   it('accounts for every Folk every tick', () => {
     const sim = createSim(config);
     run(sim, 500);
@@ -90,7 +94,7 @@ describe('metrics', () => {
     expect(new Set(activityRows(sim.metrics).map((r) => r.action))).toEqual(new Set(FOLK_ACTIONS));
   });
 
-  it('conserves food: every unit taken from the world is eaten or still carried', () => {
+  it('conserves food: every kilogram taken from the world is eaten or still carried', () => {
     const sim = createSim(config);
     const events = run(sim, 1500);
     expect(events.some((e) => e.type === 'die')).toBe(false);
@@ -98,12 +102,12 @@ describe('metrics', () => {
     const carried = carriedTotals(sim.folk);
     const eaten = new Map<string, number>();
     for (const row of consumptionRows(sim.metrics)) {
-      eaten.set(row.good, (eaten.get(row.good) ?? 0) + row.units);
+      eaten.set(row.good, (eaten.get(row.good) ?? 0) + row.kg);
     }
     const taken = new Map<string, number>();
     for (const row of sourceRows(sim.metrics)) {
-      const good = row.species === 'hare' || row.species === 'deer' ? 'meat' : 'plantFood';
-      taken.set(good, (taken.get(good) ?? 0) + row.units);
+      const good = goodOf(row.species);
+      taken.set(good, (taken.get(good) ?? 0) + row.kg);
     }
     for (const good of GOODS_LIST) {
       expect(taken.get(good.key) ?? 0).toBeCloseTo(
@@ -111,29 +115,42 @@ describe('metrics', () => {
         2,
       );
     }
-    expect(taken.get('plantFood')!).toBeGreaterThan(0);
+    expect(taken.get('berries')!).toBeGreaterThan(0);
   });
 
-  it('agrees with the event stream and the per-Folk counters', () => {
+  it('conserves energy: each Folk’s reserve changes by exactly what it ate minus what it burned', () => {
     const sim = createSim(config);
-    const events = run(sim, 1200);
-    const eatEvents = events.filter((e) => e.type === 'eat').length;
-    const meals = consumptionRows(sim.metrics).length > 0 ? eatEvents : 0;
-    let counterMeals = 0;
-    let counterEnergy = 0;
+    const start = Float64Array.from(sim.folk.reserve);
+    const events = run(sim, 1500);
+    expect(events.some((e) => e.type === 'die')).toBe(false);
     for (let slot = 0; slot < sim.folk.count; slot++) {
-      counterMeals += sim.metrics.folk[slot * COUNTER_COUNT + COUNTER.meals]!;
-      counterEnergy += sim.metrics.folk[slot * COUNTER_COUNT + COUNTER.energySpent]!;
+      const eaten = sim.metrics.folk[slot * COUNTER_COUNT + COUNTER.kcalEaten]!;
+      const spent = sim.metrics.folk[slot * COUNTER_COUNT + COUNTER.kcalSpent]!;
+      // The reserve is a 32-bit float, so allow for rounding over millions of kcal of turnover.
+      expect(Math.abs(sim.folk.reserve[slot]! - start[slot]! - (eaten - spent))).toBeLessThan(2);
     }
-    expect(counterMeals).toBe(meals);
-    const spent = activityRows(sim.metrics).reduce((sum, r) => sum + r.energySpent, 0);
-    expect(counterEnergy).toBeCloseTo(spent, 3);
-    const satietyByDecider = consumptionRows(sim.metrics).reduce((sum, r) => sum + r.satiety, 0);
-    let counterSatiety = 0;
+  });
+
+  it('keeps the energy ledger consistent with the per-Folk counters', () => {
+    const sim = createSim(config);
+    run(sim, 1200);
+    let counterSpent = 0;
+    let counterEaten = 0;
     for (let slot = 0; slot < sim.folk.count; slot++) {
-      counterSatiety += sim.metrics.folk[slot * COUNTER_COUNT + COUNTER.satietyEaten]!;
+      counterSpent += sim.metrics.folk[slot * COUNTER_COUNT + COUNTER.kcalSpent]!;
+      counterEaten += sim.metrics.folk[slot * COUNTER_COUNT + COUNTER.kcalEaten]!;
     }
-    expect(counterSatiety).toBeCloseTo(satietyByDecider, 3);
+    const ledger = ledgerRows(sim.metrics);
+    const out = ledger.filter((r) => r.category !== 'eaten').reduce((sum, r) => sum + r.kcal, 0);
+    const activity = activityRows(sim.metrics).reduce((sum, r) => sum + r.kcal, 0);
+    expect(out + activity).toBeCloseTo(counterSpent, 0);
+    const eaten = ledger.filter((r) => r.category === 'eaten').reduce((sum, r) => sum + r.kcal, 0);
+    expect(eaten).toBeCloseTo(counterEaten, 0);
+    // Baseline is charged every Folk-tick at exactly the configured rate.
+    const baseline = ledger
+      .filter((r) => r.category === 'baseline')
+      .reduce((sum, r) => sum + r.kcal, 0);
+    expect(baseline).toBeCloseTo(sim.settings.body.baselineKcalPerTick * sim.folk.count * 1200, 0);
   });
 
   it('records food sources on foraging terrain only, with successes never above attempts', () => {
@@ -144,8 +161,10 @@ describe('metrics', () => {
     for (const row of rows) {
       expect(row.successes).toBeLessThanOrEqual(row.attempts);
       expect([TERRAIN.water.key, TERRAIN.mountain.key]).not.toContain(row.terrain);
-      if (row.units > 0) expect(row.successes).toBeGreaterThan(0);
+      if (row.kg > 0) expect(row.successes).toBeGreaterThan(0);
       expect(DECIDERS.map((d) => d.key)).toContain(row.decider);
+      const density = GOODS_LIST.find((g) => g.key === goodOf(row.species))!.kcalPerKg;
+      expect(row.kcal).toBeCloseTo(row.kg * density, 2);
     }
   });
 
@@ -172,19 +191,18 @@ describe('metrics', () => {
     const sim = createSim({ ...config, folkCount: 2, ecologyInterval: 1_000_000 });
     sim.ecology.stock.forEach((s) => s.fill(0));
     sim.ecology.capacity.forEach((c) => c.fill(0));
-    const deaths = run(sim, 1500).filter((e) => e.type === 'die');
+    const deaths = run(sim, 2500).filter((e) => e.type === 'die');
     expect(deaths.length).toBeGreaterThan(0);
     for (const d of deaths) {
       if (d.type !== 'die') continue;
       expect(d.lived).toBeGreaterThan(0);
+      expect(d.stats.kcalSpent!).toBeGreaterThan(0);
       expect(Object.keys(d.stats)).toContain('meals');
     }
     // A Folk that has just been replaced has fresh counters.
     for (let slot = 0; slot < sim.folk.count; slot++) {
       if (sim.folk.age[slot]! < 5) {
-        for (let c = 0; c < COUNTER_COUNT; c++) {
-          expect(sim.metrics.folk[slot * COUNTER_COUNT + c]!).toBeLessThan(3);
-        }
+        expect(sim.metrics.folk[slot * COUNTER_COUNT + COUNTER.kcalSpent]!).toBeLessThan(300);
       }
     }
   });

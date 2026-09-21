@@ -31,8 +31,10 @@ def main() -> None:
     print(f"run {manifest['runId']}: seed {manifest['seed']}, {manifest['ticks']} ticks, "
           f"{manifest['folkCount']} Folk, world {manifest['world']['width']}x{manifest['world']['height']}")
     git = manifest.get("git", {})
+    settings = manifest["settings"]
+    capacity = settings["body"]["reserveCapacity"]
     print(f"code {str(git.get('commit'))[:8]} dirty={git.get('dirty')} deciders={manifest.get('deciderMix')} "
-          f"plantRegrowthScale={manifest.get('plantRegrowthScale')}")
+          f"config={manifest.get('configPath') or 'defaults'} hash={manifest.get('settingsHash')}")
 
     decider_of: dict[int, str] = {}
     kinds = Counter()
@@ -67,20 +69,20 @@ def main() -> None:
         for row in csv.DictReader(f):
             by_tick[int(row["tick"])].append(row)
     ticks = sorted(by_tick)
-    print("\nmean over time            satiety  health  energy  injured")
+    print("\nmean over time            reserve (share of capacity)  injured")
     for t in dict.fromkeys(ticks[:: max(1, len(ticks) // 6)] + [ticks[-1]]):
         rows = by_tick[t]
-        mean = lambda k: sum(float(r[k]) for r in rows) / len(rows)
+        mean = sum(float(r["reserve"]) for r in rows) / len(rows) / capacity
         injured = sum(1 for r in rows if int(r["injury"]) > 0)
-        print(f"  tick {t:6d}            {mean('satiety'):7.1f} {mean('health'):7.1f} {mean('energy'):7.1f}  {injured:5d}")
+        print(f"  tick {t:6d}                  {mean:6.2f}                  {injured:5d}")
 
     hungry = defaultdict(lambda: [0, 0])
     for rows in by_tick.values():
         for r in rows:
             h = hungry[r["decider"]]
             h[1] += 1
-            h[0] += 1 if float(r["satiety"]) < 25 else 0
-    print("\nhungry (satiety < 25) share of Folk snapshots:",
+            h[0] += 1 if float(r["reserve"]) < 0.25 * capacity else 0
+    print("\nhungry (reserve below 25% of capacity) share of Folk snapshots:",
           {k: f"{100 * a / b:.1f}%" for k, (a, b) in sorted(hungry.items())})
 
     with (run / "resources.csv").open() as f:

@@ -1,0 +1,306 @@
+import { FORAGE_ACTIONS, type ForageDef } from './data/actions';
+import { GOODS_LIST, type GoodDef } from './data/goods';
+import { SPECIES_LIST, type SpeciesDef } from './data/species';
+import { DECIDERS } from './deciders';
+import type { ParamSpec } from './deciders/types';
+import { DEFAULT_WORLD_PARAMS, type WorldParams } from './world';
+
+/**
+ * Everything tunable about a run, resolved and validated. Lives in a JSON file (see `configs/`) and is
+ * chosen when a run starts; it cannot change during a run. Units: a tick is 6 minutes, a tile 360 m,
+ * mass is kg and energy is kcal.
+ */
+export interface Settings {
+  units: { tickMinutes: number; tileMeters: number };
+  /** The calorie reserve every Folk lives on. */
+  body: {
+    /** Calories burned every tick just staying alive (1,900 kcal a day is about 7.9). */
+    baselineKcalPerTick: number;
+    reserveCapacity: number;
+    /** Starting reserve as a fraction of capacity, drawn between min and max. */
+    startReserveFraction: { min: number; max: number };
+    /** Most calories a Folk can eat in one tick; a meal takes as many ticks as it needs. */
+    maxIntakeKcalPerTick: number;
+    /** Calories eaten in one sitting at most. */
+    mealKcal: number;
+  };
+  /** Calories per tick above baseline for non-foraging states (negative is below baseline). */
+  activity: { idle: number; moving: number; eating: number; resting: number };
+  injury: {
+    /** Index 0 none, 1 minor, 2 serious. */
+    durationMultiplier: number[];
+    healKcalPerTick: number[];
+    /** Ticks at that level before it heals one level. */
+    healTicks: number[];
+    /** Healing runs this many times faster while resting. */
+    restHealFactor: number;
+    /** Chance per tick of dying at that injury level. */
+    deathChancePerTick: number[];
+  };
+  folk: {
+    count: number;
+    carryCapacityKg: number;
+    searchDepth: number;
+    idleChance: number;
+    restTicks: number;
+    spawnRadius: number;
+    settlementCandidates: number;
+    settlementScoreRadius: number;
+    settlementWaterDistance: number;
+    /** Decider keys handed out to Folk in turn. */
+    deciders: string[];
+  };
+  skills: { gain: number; yieldBonus: number; successBonus: number; maxSuccess: number };
+  goods: GoodDef[];
+  actions: ForageDef[];
+  species: SpeciesDef[];
+  /** Each decider's parameter ranges (the order matches the decider's parameter array). */
+  deciders: { key: string; params: ParamSpec[] }[];
+  ecology: { plantRegrowthScale: number; interval: number };
+  world: WorldParams;
+}
+
+export class ConfigError extends Error {
+  constructor(message: string) {
+    super(`invalid configuration: ${message}`);
+    this.name = 'ConfigError';
+  }
+}
+
+const clone = <T>(value: T): T => structuredClone(value);
+
+export function defaultSettings(): Settings {
+  return {
+    units: { tickMinutes: 6, tileMeters: 360 },
+    body: {
+      baselineKcalPerTick: 7.9,
+      reserveCapacity: 15000,
+      startReserveFraction: { min: 0.5, max: 0.7 },
+      maxIntakeKcalPerTick: 300,
+      mealKcal: 1500,
+    },
+    activity: { idle: 2, moving: 20, eating: 4, resting: -0.8 },
+    injury: {
+      durationMultiplier: [1, 2, 10],
+      healKcalPerTick: [0, 6, 20],
+      healTicks: [0, 300, 400],
+      restHealFactor: 2,
+      deathChancePerTick: [0, 0, 0],
+    },
+    folk: {
+      count: 20,
+      carryCapacityKg: 20,
+      searchDepth: 60,
+      idleChance: 0.4,
+      restTicks: 3,
+      spawnRadius: 5,
+      settlementCandidates: 60,
+      settlementScoreRadius: 6,
+      settlementWaterDistance: 4,
+      deciders: DECIDERS.map((d) => d.key),
+    },
+    skills: { gain: 0.004, yieldBonus: 1, successBonus: 0.4, maxSuccess: 0.95 },
+    goods: clone([...GOODS_LIST]),
+    actions: clone([...FORAGE_ACTIONS]),
+    species: clone([...SPECIES_LIST]),
+    deciders: DECIDERS.map((d) => ({ key: d.key, params: clone([...d.params]) })),
+    ecology: { plantRegrowthScale: 1, interval: 1 },
+    world: clone(DEFAULT_WORLD_PARAMS),
+  };
+}
+
+// --- the file format: numbers only, collections keyed by name -------------------------------------
+
+type Json = Record<string, unknown>;
+const isObject = (v: unknown): v is Json =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/** Copy only the numeric parts of an object (numbers, arrays of numbers, and objects of those). */
+function numeric(value: unknown): unknown {
+  if (typeof value === 'number') return value;
+  if (Array.isArray(value))
+    return value.every((v) => typeof v === 'number') ? [...value] : undefined;
+  if (isObject(value)) {
+    const out: Json = {};
+    for (const [k, v] of Object.entries(value)) {
+      const n = numeric(v);
+      if (n !== undefined) out[k] = n;
+    }
+    return Object.keys(out).length > 0 ? out : undefined;
+  }
+  return undefined;
+}
+
+/** Ids and option numbers tie definitions to typed-array columns and cannot be configured. */
+const PROTECTED = new Set(['id', 'option']);
+
+const keyed = <T extends { key: string }>(items: readonly T[]): Json =>
+  Object.fromEntries(
+    items.map((item) => [
+      item.key,
+      numeric(Object.fromEntries(Object.entries(item).filter(([k]) => !PROTECTED.has(k)))),
+    ]),
+  );
+
+/** The configuration as a JSON-friendly object: this is what `configs/default.json` contains. */
+export function settingsToFile(settings: Settings): Json {
+  return {
+    units: numeric(settings.units),
+    body: numeric(settings.body),
+    activity: numeric(settings.activity),
+    injury: numeric(settings.injury),
+    folk: {
+      ...(numeric({ ...settings.folk, deciders: undefined }) as Json),
+      deciders: [...settings.folk.deciders],
+    },
+    skills: numeric(settings.skills),
+    goods: keyed(settings.goods),
+    actions: keyed(settings.actions),
+    species: keyed(settings.species),
+    deciders: Object.fromEntries(
+      settings.deciders.map((d) => [
+        d.key,
+        { params: Object.fromEntries(d.params.map((p) => [p.key, { min: p.min, max: p.max }])) },
+      ]),
+    ),
+    ecology: numeric(settings.ecology),
+    world: numeric(settings.world),
+  };
+}
+
+/** Overlay numbers from `source` onto `target`, rejecting anything unknown or of the wrong kind. */
+function apply(target: Json, source: unknown, path: string): void {
+  if (!isObject(source)) throw new ConfigError(`${path} must be an object`);
+  for (const [key, value] of Object.entries(source)) {
+    const here = `${path}.${key}`;
+    if (PROTECTED.has(key))
+      throw new ConfigError(`${here} cannot be set from a configuration file`);
+    if (!(key in target)) throw new ConfigError(`unknown setting ${here}`);
+    const current = target[key];
+    if (typeof current === 'number') {
+      if (typeof value !== 'number' || !Number.isFinite(value))
+        throw new ConfigError(`${here} must be a number`);
+      target[key] = value;
+    } else if (Array.isArray(current) && current.every((v) => typeof v === 'number')) {
+      if (
+        !Array.isArray(value) ||
+        value.length !== current.length ||
+        !value.every((v) => typeof v === 'number' && Number.isFinite(v))
+      ) {
+        throw new ConfigError(`${here} must be a list of ${current.length} numbers`);
+      }
+      target[key] = [...value];
+    } else if (isObject(current)) {
+      apply(current, value, here);
+    } else {
+      throw new ConfigError(`${here} cannot be set from a configuration file`);
+    }
+  }
+}
+
+/** Overlay a keyed collection (goods, actions, species) onto an array of definitions. */
+function applyKeyed<T extends { key: string }>(items: T[], source: unknown, path: string): void {
+  if (!isObject(source)) throw new ConfigError(`${path} must be an object keyed by name`);
+  for (const [key, value] of Object.entries(source)) {
+    const item = items.find((i) => i.key === key);
+    if (!item) throw new ConfigError(`unknown entry ${path}.${key}`);
+    apply(item as unknown as Json, value, `${path}.${key}`);
+  }
+}
+
+function validate(settings: Settings): void {
+  const positive = (value: number, name: string): void => {
+    if (!(value > 0)) throw new ConfigError(`${name} must be greater than 0`);
+  };
+  positive(settings.body.reserveCapacity, 'body.reserveCapacity');
+  positive(settings.body.baselineKcalPerTick, 'body.baselineKcalPerTick');
+  positive(settings.body.maxIntakeKcalPerTick, 'body.maxIntakeKcalPerTick');
+  positive(settings.body.mealKcal, 'body.mealKcal');
+  positive(settings.folk.carryCapacityKg, 'folk.carryCapacityKg');
+  positive(settings.units.tickMinutes, 'units.tickMinutes');
+  positive(settings.units.tileMeters, 'units.tileMeters');
+  const { min, max } = settings.body.startReserveFraction;
+  if (!(min > 0 && max >= min && max <= 1)) {
+    throw new ConfigError('body.startReserveFraction needs 0 < min <= max <= 1');
+  }
+  if (!(Number.isInteger(settings.folk.count) && settings.folk.count >= 1)) {
+    throw new ConfigError('folk.count must be a whole number of at least 1');
+  }
+  if (settings.folk.deciders.length === 0)
+    throw new ConfigError('folk.deciders needs at least one decider');
+  for (const key of settings.folk.deciders) {
+    if (!DECIDERS.some((d) => d.key === key))
+      throw new ConfigError(`folk.deciders has unknown decider "${key}"`);
+  }
+  for (const d of settings.deciders) {
+    for (const p of d.params) {
+      if (!(p.max >= p.min))
+        throw new ConfigError(`deciders.${d.key}.params.${p.key}: max must be at least min`);
+    }
+  }
+  for (const level of settings.injury.deathChancePerTick) {
+    if (!(level >= 0 && level <= 1))
+      throw new ConfigError('injury.deathChancePerTick values must be between 0 and 1');
+  }
+  if (settings.injury.durationMultiplier.some((m) => !(m >= 1))) {
+    throw new ConfigError('injury.durationMultiplier values must be at least 1');
+  }
+  if (!(settings.ecology.plantRegrowthScale > 0))
+    throw new ConfigError('ecology.plantRegrowthScale must be greater than 0');
+  if (!(Number.isInteger(settings.ecology.interval) && settings.ecology.interval >= 1)) {
+    throw new ConfigError('ecology.interval must be a whole number of at least 1');
+  }
+}
+
+/**
+ * Turn a configuration file's contents into settings: defaults with the file's numbers laid over
+ * them. Unknown names, wrong types and impossible values are rejected with the path of the problem.
+ */
+export function resolveSettings(file: unknown = {}): Settings {
+  if (!isObject(file)) throw new ConfigError('the file must contain a JSON object');
+  const settings = defaultSettings();
+  const structural = settings as unknown as Json;
+  for (const [key, value] of Object.entries(file)) {
+    switch (key) {
+      case 'goods':
+        applyKeyed(settings.goods, value, 'goods');
+        break;
+      case 'actions':
+        applyKeyed(settings.actions, value, 'actions');
+        break;
+      case 'species':
+        applyKeyed(settings.species, value, 'species');
+        break;
+      case 'deciders': {
+        if (!isObject(value)) throw new ConfigError('deciders must be an object keyed by decider');
+        for (const [dk, dv] of Object.entries(value)) {
+          const decider = settings.deciders.find((d) => d.key === dk);
+          if (!decider) throw new ConfigError(`unknown decider deciders.${dk}`);
+          if (!isObject(dv) || (Object.keys(dv).length > 0 && !('params' in dv))) {
+            throw new ConfigError(`deciders.${dk} may only contain "params"`);
+          }
+          applyKeyed(decider.params, dv.params ?? {}, `deciders.${dk}.params`);
+        }
+        break;
+      }
+      case 'folk': {
+        if (!isObject(value)) throw new ConfigError('folk must be an object');
+        const { deciders, ...rest } = value;
+        apply(settings.folk as unknown as Json, rest, 'folk');
+        if (deciders !== undefined) {
+          if (!Array.isArray(deciders) || !deciders.every((d) => typeof d === 'string')) {
+            throw new ConfigError('folk.deciders must be a list of decider names');
+          }
+          settings.folk.deciders = [...deciders];
+        }
+        break;
+      }
+      default:
+        if (!(key in structural) || !isObject(structural[key]))
+          throw new ConfigError(`unknown section "${key}"`);
+        apply(structural[key] as Json, value, key);
+    }
+  }
+  validate(settings);
+  return settings;
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
+import { defaultSettings, resolveSettings } from '../config';
 import { OPTION, OPTION_COUNT } from '../data/actions';
-import { FOLK, INJURY } from '../data/folk';
 import { GOODS_LIST } from '../data/goods';
 import { TERRAIN } from '../data/terrain';
 import { DECIDERS, MAX_PARAMS, type DeciderDef, type Senses } from '../deciders';
@@ -9,8 +9,11 @@ import { createSim } from '../sim';
 import { walkableTable } from './store';
 
 const config = { seed: 3, world: { width: 96, height: 80, noiseScale: 30 } };
-const plantFood = GOODS_LIST.findIndex((g) => g.key === 'plantFood');
-const meat = GOODS_LIST.findIndex((g) => g.key === 'meat');
+const settings = defaultSettings();
+const CAPACITY = settings.body.reserveCapacity;
+const good = (key: string): number => GOODS_LIST.findIndex((g) => g.key === key);
+const berries = good('berries');
+const meat = good('meat');
 
 /** Run steps, collecting every event. */
 function run(sim: ReturnType<typeof createSim>, ticks: number): SimEvent[] {
@@ -51,20 +54,19 @@ function senses(
   decider: DeciderDef,
   values: Record<string, number> = {},
   over: Partial<Senses> = {},
-) {
+): Senses {
   const params = new Float32Array(MAX_PARAMS);
   decider.params.forEach((spec, i) => {
     params[i] = values[spec.key] ?? (spec.min + spec.max) / 2;
   });
-  const s: Senses = {
+  return {
     x: 0,
     y: 0,
-    satiety: 60,
-    health: 100,
-    energy: 80,
+    reserve: 0.6 * CAPACITY,
+    capacity: CAPACITY,
     injury: 0,
-    foodSatiety: 0,
-    room: FOLK.carryCapacity,
+    foodKcal: 0,
+    roomKg: settings.folk.carryCapacityKg,
     foraging: 0,
     hunting: 0,
     resting: false,
@@ -73,9 +75,9 @@ function senses(
     paramBase: 0,
     targetTile: new Int32Array(OPTION_COUNT).fill(-1),
     targetDist: new Int32Array(OPTION_COUNT),
+    settings,
     ...over,
   };
-  return s;
 }
 
 function decide(decider: DeciderDef, s: Senses): number {
@@ -92,14 +94,18 @@ describe('Folk setup', () => {
     expect(folk.count).toBe(20);
     for (let s = 0; s < folk.count; s++) {
       expect(walkable[world.terrain[folk.y[s]! * world.width + folk.x[s]!]!]).toBe(1);
-      expect(Math.abs(folk.x[s]! - folk.settlement.x)).toBeLessThanOrEqual(FOLK.spawnRadius);
-      expect(Math.abs(folk.y[s]! - folk.settlement.y)).toBeLessThanOrEqual(FOLK.spawnRadius);
+      expect(Math.abs(folk.x[s]! - folk.settlement.x)).toBeLessThanOrEqual(
+        settings.folk.spawnRadius,
+      );
+      expect(Math.abs(folk.y[s]! - folk.settlement.y)).toBeLessThanOrEqual(
+        settings.folk.spawnRadius,
+      );
     }
   });
 
   it('places the settlement within reach of water', () => {
     const { folk, world } = createSim(config);
-    const r = FOLK.settlementWaterDistance;
+    const r = settings.folk.settlementWaterDistance;
     let found = false;
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
@@ -111,6 +117,15 @@ describe('Folk setup', () => {
       }
     }
     expect(found).toBe(true);
+  });
+
+  it('starts every Folk with a calorie reserve inside the configured range', () => {
+    const { folk } = createSim(config);
+    const { min, max } = settings.body.startReserveFraction;
+    for (const reserve of folk.reserve) {
+      expect(reserve).toBeGreaterThanOrEqual(min * CAPACITY - 1);
+      expect(reserve).toBeLessThanOrEqual(max * CAPACITY + 1);
+    }
   });
 
   it('hands out deciders in turn and draws each parameter within its range', () => {
@@ -129,6 +144,16 @@ describe('Folk setup', () => {
       });
     }
     expect([...kinds].sort()).toEqual(DECIDERS.map((d) => d.key).sort());
+  });
+
+  it('uses the parameter ranges from the configuration', () => {
+    const custom = resolveSettings({
+      deciders: { rules: { params: { eatBelow: { min: 0.5, max: 0.5 } } } },
+    });
+    const events = createSim({ ...config, settings: custom, deciders: ['rules'] })
+      .drainEvents()
+      .filter((e) => e.type === 'spawn');
+    for (const e of events) if (e.type === 'spawn') expect(e.params[0]).toBeCloseTo(0.5, 4);
   });
 
   it('gives Folk of the same decider different parameters', () => {
@@ -150,21 +175,20 @@ describe('Folk setup', () => {
       b.step();
     }
     expect(a.folk.x).toEqual(b.folk.x);
+    expect(a.folk.reserve).toEqual(b.folk.reserve);
     expect(a.folk.inventory).toEqual(b.folk.inventory);
     expect(a.ecology.stock).toEqual(b.ecology.stock);
   });
 
-  it('keeps Folk on walkable tiles with stats in range', () => {
+  it('keeps Folk on walkable tiles with a reserve between zero and capacity', () => {
     const sim = createSim(config);
     const walkable = walkableTable();
     for (let i = 0; i < 600; i++) sim.step();
     const { folk, world } = sim;
     for (let s = 0; s < folk.count; s++) {
       expect(walkable[world.terrain[folk.y[s]! * world.width + folk.x[s]!]!]).toBe(1);
-      for (const stat of [folk.satiety, folk.health, folk.energy]) {
-        expect(stat[s]!).toBeGreaterThanOrEqual(0);
-        expect(stat[s]!).toBeLessThanOrEqual(FOLK.maxStat);
-      }
+      expect(folk.reserve[s]!).toBeGreaterThan(0);
+      expect(folk.reserve[s]!).toBeLessThanOrEqual(CAPACITY + 1);
     }
   });
 
@@ -176,28 +200,89 @@ describe('Folk setup', () => {
   });
 });
 
-describe('foraging', () => {
-  it('gathers into the inventory and takes exactly that much from the tile', () => {
+describe('calories', () => {
+  it('burns the baseline plus the cost of the current activity every tick', () => {
     const sim = bare();
-    const berries = speciesIndex(sim, 'berries');
+    sim.folk.reserve[0] = CAPACITY;
+    const before = sim.folk.reserve[0]!;
+    sim.step();
+    // On its first tick a Folk is idle: baseline plus the idle cost.
+    expect(before - sim.folk.reserve[0]!).toBeCloseTo(
+      settings.body.baselineKcalPerTick + settings.activity.idle,
+      3,
+    );
+  });
+
+  it('takes several ticks to eat a meal, limited by intake per tick', () => {
+    const sim = bare();
+    sim.folk.reserve[0] = 0.2 * CAPACITY;
+    sim.folk.inventory[meat] = 5;
+    sim.step();
+    const ticks = Math.ceil(settings.body.mealKcal / settings.body.maxIntakeKcalPerTick);
+    expect(sim.folk.busyUntil[0]).toBe(1 + ticks);
+    const events = run(sim, ticks);
+    const meal = events.find((e) => e.type === 'eat');
+    expect(meal).toBeDefined();
+    if (meal?.type === 'eat') expect(meal.kcal).toBeCloseTo(settings.body.mealKcal, 1);
+  });
+
+  it('never eats more than fits in the reserve', () => {
+    const sim = bare();
+    sim.folk.reserve[0] = CAPACITY - 100;
+    sim.folk.inventory[meat] = 5;
+    // Rules Folk only eat below a threshold; drop it to zero and use an over-full choice via utility.
+    const full = bare(['utility']);
+    full.folk.reserve[0] = 0.5 * CAPACITY;
+    full.folk.inventory[meat] = 20;
+    for (let i = 0; i < 200; i++) {
+      full.step();
+      expect(full.folk.reserve[0]!).toBeLessThanOrEqual(CAPACITY + 1e-3);
+    }
+  });
+
+  it('eats the densest food first', () => {
+    const sim = bare();
+    sim.folk.reserve[0] = 0.2 * CAPACITY;
+    sim.folk.inventory[berries] = 5;
+    sim.folk.inventory[meat] = 5;
+    run(sim, 8);
+    expect(sim.folk.inventory[meat]!).toBeLessThan(5);
+    expect(sim.folk.inventory[berries]!).toBeCloseTo(5, 3);
+  });
+});
+
+describe('survival', () => {
+  it('in a food-rich world nobody starves, whatever their random parameters', () => {
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const sim = createSim({ seed, world: { width: 96, height: 96, noiseScale: 30 } });
+      const deaths = run(sim, 2500).filter((e) => e.type === 'die');
+      expect(deaths, `seed ${seed}`).toHaveLength(0);
+    }
+  }, 60_000);
+});
+
+describe('foraging', () => {
+  it('gathers kilograms into the inventory and takes exactly that much from the tile', () => {
+    const sim = bare();
+    const stock = sim.ecology.stock[speciesIndex(sim, 'berries')]!;
     const tile = tileOf(sim);
-    sim.ecology.stock[berries]![tile] = 50;
-    sim.folk.satiety[0] = 90;
+    stock[tile] = 50;
+    sim.folk.reserve[0] = 0.95 * CAPACITY;
     let gathered = 0;
     for (let i = 0; i < 40 && gathered === 0; i++) {
       sim.step();
-      for (const e of sim.drainEvents()) if (e.type === 'gather') gathered += e.amount;
+      for (const e of sim.drainEvents()) if (e.type === 'gather') gathered += e.kg;
     }
     expect(gathered).toBeGreaterThan(0);
-    expect(sim.folk.inventory[plantFood]!).toBeCloseTo(gathered, 4);
-    expect(sim.ecology.stock[berries]![tile]!).toBeCloseTo(50 - gathered, 3);
+    expect(sim.folk.inventory[berries]!).toBeCloseTo(gathered, 4);
+    expect(stock[tile]!).toBeCloseTo(50 - gathered, 3);
   });
 
   it('walks to distant food before gathering it', () => {
     const sim = bare(['utility']);
     const { world, folk } = sim;
     const walkable = walkableTable();
-    const berries = speciesIndex(sim, 'berries');
+    const stock = sim.ecology.stock[speciesIndex(sim, 'berries')]!;
     let target = -1;
     for (let d = 4; d < 12 && target < 0; d++) {
       const x = folk.x[0]! + d;
@@ -206,43 +291,46 @@ describe('foraging', () => {
       }
     }
     expect(target).toBeGreaterThanOrEqual(0);
-    sim.ecology.stock[berries]![target] = 80;
-    folk.satiety[0] = 20;
+    stock[target] = 80;
+    folk.reserve[0] = 0.3 * CAPACITY;
     const events = run(sim, 80);
     expect(events.some((e) => e.type === 'gather')).toBe(true);
-    expect(sim.ecology.stock[berries]![target]!).toBeLessThan(80);
+    expect(stock[target]!).toBeLessThan(80);
   });
 
   it('never carries more than its capacity', () => {
     const sim = createSim({ ...config, folkCount: 4 });
+    const kgOf = (slot: number): number => {
+      let kg = 0;
+      GOODS_LIST.forEach((_, k) => {
+        kg += sim.folk.inventory[slot * GOODS_LIST.length + k]!;
+      });
+      return kg;
+    };
     for (let i = 0; i < 1500; i++) {
       sim.step();
       for (let s = 0; s < sim.folk.count; s++) {
-        let weight = 0;
-        GOODS_LIST.forEach((g, k) => {
-          weight += sim.folk.inventory[s * GOODS_LIST.length + k]! * g.weight;
-        });
-        expect(weight).toBeLessThanOrEqual(FOLK.carryCapacity + 1e-3);
+        expect(kgOf(s)).toBeLessThanOrEqual(settings.folk.carryCapacityKg + 1e-3);
       }
     }
   });
 
   it('removes one head and yields meat when a hunt succeeds', () => {
     const sim = bare(['utility']);
-    const hare = speciesIndex(sim, 'hare');
+    const hare = sim.ecology.stock[speciesIndex(sim, 'hare')]!;
     const tile = tileOf(sim);
-    sim.folk.satiety[0] = 30;
+    sim.folk.reserve[0] = 0.3 * CAPACITY;
     let checked = 0;
     for (let i = 0; i < 400 && checked < 3; i++) {
-      sim.ecology.stock[hare]![tile] = 6;
+      hare[tile] = 6;
       const before = sim.folk.inventory[meat]!;
       sim.step();
       for (const e of sim.drainEvents()) {
         if (e.type !== 'hunt') continue;
         checked++;
         if (e.success) {
-          expect(sim.ecology.stock[hare]![tile]!).toBeCloseTo(5, 3);
-          expect(sim.folk.inventory[meat]!).toBeGreaterThan(before);
+          expect(hare[tile]!).toBeCloseTo(5, 3);
+          expect(sim.folk.inventory[meat]!).toBeCloseTo(before + e.kg, 3);
         } else {
           expect(sim.folk.inventory[meat]!).toBeCloseTo(before, 4);
         }
@@ -254,18 +342,20 @@ describe('foraging', () => {
 
   it('eats from the inventory, not from the ground', () => {
     const sim = bare();
-    sim.folk.satiety[0] = 10;
-    sim.folk.inventory[plantFood] = 12;
-    const events = run(sim, 4);
+    sim.folk.reserve[0] = 0.2 * CAPACITY;
+    sim.folk.inventory[berries] = 6;
+    const start = sim.folk.reserve[0]!;
+    const events = run(sim, 12);
     expect(events.some((e) => e.type === 'eat')).toBe(true);
-    expect(sim.folk.satiety[0]!).toBeGreaterThan(10);
-    expect(sim.folk.inventory[plantFood]!).toBeLessThan(12);
+    expect(sim.folk.inventory[berries]!).toBeLessThan(6);
+    // Net of what it burned, the reserve went up because it ate.
+    expect(sim.folk.reserve[0]!).toBeGreaterThan(start - 12 * 100);
   });
 
   it('improves a skill with use', () => {
     const sim = bare();
     sim.ecology.stock[speciesIndex(sim, 'berries')]!.fill(60);
-    sim.folk.satiety[0] = 60;
+    sim.folk.reserve[0] = 0.6 * CAPACITY;
     run(sim, 300);
     expect(sim.folk.foraging[0]!).toBeGreaterThan(0);
   });
@@ -278,7 +368,7 @@ describe('foraging', () => {
     let replaced = 0;
     for (const e of sim.drainEvents()) if (e.type === 'spawn') deciderOf.set(e.folk, e.decider);
     const dead: number[] = [];
-    for (const e of run(sim, 1500)) {
+    for (const e of run(sim, 2500)) {
       if (e.type === 'die') {
         expect(e.cause).toBe('starvation');
         dead.push(e.folk);
@@ -295,12 +385,17 @@ describe('foraging', () => {
 });
 
 describe('injury', () => {
+  /** Rules Folk that never rest, so injury is the only thing changing how much they walk. */
+  const neverRest = resolveSettings({
+    deciders: { rules: { params: { restIfInjured: { min: 2, max: 2 } } } },
+  });
+
   function moves(injury: number): number {
-    const sim = bare(['rules'], { emitMoves: true });
+    const sim = bare(['rules'], { emitMoves: true, settings: neverRest });
     sim.folk.injury[0] = injury;
     sim.folk.injuryTimer[0] = 1e9;
-    sim.folk.satiety[0] = 100;
-    sim.folk.inventory[plantFood] = 20;
+    sim.folk.reserve[0] = CAPACITY;
+    sim.folk.inventory[berries] = 20;
     return run(sim, 600).filter((e) => e.type === 'move').length;
   }
 
@@ -320,28 +415,78 @@ describe('injury', () => {
     const first = run(sim, 4);
     expect(sim.folk.injury[0]).toBe(1);
     expect(first.some((e) => e.type === 'heal' && e.severity === 'minor')).toBe(true);
-    expect(sim.folk.injuryTimer[0]!).toBeGreaterThan(INJURY.healTicks[1]! - 10);
+    expect(sim.folk.injuryTimer[0]!).toBeGreaterThan(settings.injury.healTicks[1]! - 10);
     sim.folk.injuryTimer[0] = 2;
     const second = run(sim, 3);
     expect(sim.folk.injury[0]).toBe(0);
     expect(second.some((e) => e.type === 'heal' && e.severity === 'none')).toBe(true);
   });
 
-  it('can be caused by dangerous work and costs health', () => {
-    const sim = bare(['utility']);
-    const deer = speciesIndex(sim, 'deer');
+  it('burns extra calories while healing', () => {
+    const hurt = bare();
+    const well = bare();
+    for (const sim of [hurt, well]) sim.folk.reserve[0] = CAPACITY;
+    hurt.folk.injury[0] = 2;
+    hurt.folk.injuryTimer[0] = 1e9;
+    hurt.step();
+    well.step();
+    expect(well.folk.reserve[0]! - hurt.folk.reserve[0]!).toBeCloseTo(
+      settings.injury.healKcalPerTick[2]!,
+      2,
+    );
+  });
+
+  it('heals faster while resting', () => {
+    const sim = bare();
+    sim.folk.injury[0] = 1;
+    sim.folk.injuryTimer[0] = 100;
+    sim.folk.action[0] = 3; // resting
+    sim.step();
+    expect(sim.folk.injuryTimer[0]!).toBeCloseTo(100 - settings.injury.restHealFactor, 3);
+  });
+
+  it('can kill only when the configuration says so', () => {
+    const deadly = resolveSettings({ injury: { deathChancePerTick: [0, 0, 1] } });
+    const sim = bare(['rules'], { settings: deadly });
+    sim.folk.reserve[0] = CAPACITY;
+    sim.folk.injury[0] = 2;
+    sim.folk.injuryTimer[0] = 1e9;
+    const died = run(sim, 3).find((e) => e.type === 'die');
+    expect(died?.type === 'die' && died.cause).toBe('injury');
+
+    const safe = bare();
+    safe.folk.reserve[0] = CAPACITY;
+    safe.folk.injury[0] = 2;
+    safe.folk.injuryTimer[0] = 1e9;
+    expect(run(safe, 200).some((e) => e.type === 'die')).toBe(false);
+  });
+
+  it('can be caused by dangerous work', () => {
+    // A utility Folk that cares only about yield, so it goes for the deer.
+    const daring = resolveSettings({
+      deciders: {
+        utility: {
+          params: {
+            wYield: { min: 2, max: 2 },
+            wEffort: { min: 0, max: 0 },
+            wRisk: { min: 0, max: 0 },
+            wDistance: { min: 0, max: 0 },
+            wWander: { min: 0, max: 0 },
+          },
+        },
+      },
+    });
+    const sim = bare(['utility'], { settings: daring });
+    const deer = sim.ecology.stock[speciesIndex(sim, 'deer')]!;
     const tile = tileOf(sim);
-    sim.folk.satiety[0] = 30;
     let injuries = 0;
     for (let i = 0; i < 3000 && injuries === 0; i++) {
-      sim.ecology.stock[deer]![tile] = 4;
-      sim.folk.satiety[0] = 30;
+      deer[tile] = 4;
+      sim.folk.reserve[0] = 0.4 * CAPACITY;
       sim.folk.inventory.fill(0);
       sim.folk.injury[0] = 0;
-      sim.folk.health[0] = 100;
       sim.step();
       for (const e of sim.drainEvents()) if (e.type === 'injure') injuries++;
-      if (injuries > 0) expect(sim.folk.health[0]!).toBeLessThan(100);
     }
     expect(injuries).toBeGreaterThan(0);
   });
@@ -353,42 +498,94 @@ describe('deciders', () => {
     DECIDERS.find((d) => d.key === 'utility')!,
   ];
 
-  it('rules: eat when hungry and carrying food', () => {
-    const s = senses(rules, { hungerThreshold: 50 }, { satiety: 30, foodSatiety: 10 });
+  it('rules: eat when the reserve is low and carrying food', () => {
+    const s = senses(rules, { eatBelow: 0.5 }, { reserve: 0.3 * CAPACITY, foodKcal: 2000 });
     expect(decide(rules, s)).toBe(OPTION.eat);
+    const fed = senses(rules, { eatBelow: 0.5 }, { reserve: 0.8 * CAPACITY, foodKcal: 2000 });
+    expect(decide(rules, fed)).not.toBe(OPTION.eat);
   });
 
-  it('rules: rest when tired, then keep resting until rested', () => {
-    expect(decide(rules, senses(rules, { tiredThreshold: 25 }, { energy: 10 }))).toBe(OPTION.rest);
-    const half = senses(rules, { restUntil: 70 }, { energy: 50, resting: true });
-    expect(decide(rules, half)).toBe(OPTION.rest);
+  it('rules: rest when hurt enough, unless starving', () => {
+    const hurt = senses(rules, { restIfInjured: 0 }, { injury: 1 });
+    expect(decide(rules, hurt)).toBe(OPTION.rest);
+    const stubborn = senses(rules, { restIfInjured: 2 }, { injury: 2 });
+    expect(decide(rules, stubborn)).not.toBe(OPTION.rest);
+    const starving = senses(rules, { restIfInjured: 0 }, { injury: 1, reserve: 0.1 * CAPACITY });
+    expect(decide(rules, starving)).not.toBe(OPTION.rest);
   });
 
   it('rules: bold Folk take the risky high-yield work, cautious Folk the safe work', () => {
     const targets = { targetTile: Int32Array.from([-1, 5, 6, 7, 8, -1, -1]) };
-    const bold = senses(rules, { riskTolerance: 0.9, foodTarget: 20 }, targets);
-    const careful = senses(rules, { riskTolerance: 0.1, foodTarget: 20 }, targets);
+    const bold = senses(rules, { riskTolerance: 0.9, foodTarget: 12000 }, targets);
+    const careful = senses(rules, { riskTolerance: 0.1, foodTarget: 12000 }, targets);
     expect(decide(rules, bold)).toBe(OPTION.dig);
     expect(decide(rules, careful)).toBe(OPTION.gather);
   });
 
+  it('rules: nobody starving goes after dangerous game', () => {
+    const targets = {
+      targetTile: Int32Array.from([-1, -1, -1, -1, 8, -1, -1]),
+      reserve: 0.2 * CAPACITY,
+    };
+    expect(decide(rules, senses(rules, { riskTolerance: 0.9, foodTarget: 12000 }, targets))).toBe(
+      OPTION.wander,
+    );
+  });
+
   it('utility: weights decide between safe and dangerous work', () => {
-    const targets = { targetTile: Int32Array.from([-1, 5, -1, -1, 8, -1, -1]), satiety: 40 };
-    const timid = senses(utility, { wRisk: 2, wEffort: 2, wYield: 0.6 }, targets);
-    const daring = senses(utility, { wRisk: 0, wEffort: 0, wYield: 2 }, targets);
+    const targets = {
+      targetTile: Int32Array.from([-1, 5, -1, -1, 8, -1, -1]),
+      reserve: 0.5 * CAPACITY,
+    };
+    const timid = senses(utility, { wRisk: 2, wEffort: 2, wYield: 0.6, wWander: 0 }, targets);
+    const daring = senses(utility, { wRisk: 0, wEffort: 0, wYield: 2, wWander: 0 }, targets);
     expect(decide(utility, timid)).toBe(OPTION.gather);
     expect(decide(utility, daring)).toBe(OPTION.chase);
   });
 
-  it('utility: a starving Folk carrying food eats, an exhausted one rests', () => {
-    expect(decide(utility, senses(utility, {}, { satiety: 10, foodSatiety: 20 }))).toBe(OPTION.eat);
-    expect(decide(utility, senses(utility, { wRest: 2 }, { satiety: 90, energy: 5 }))).toBe(
-      OPTION.rest,
+  it('utility: nobody starves with food in their pocket, however little they care about hunger', () => {
+    const indifferent = senses(
+      utility,
+      { wNeed: 0.2, wWander: 0.5, wYield: 0.2 },
+      { reserve: 0.25 * CAPACITY, foodKcal: 3000 },
     );
+    expect(decide(utility, indifferent)).toBe(OPTION.eat);
+  });
+
+  it('utility: nobody starves with no food, however little they care about yield', () => {
+    const targets = { targetTile: Int32Array.from([-1, 5, -1, -1, -1, -1, -1]) };
+    const indifferent = senses(
+      utility,
+      { wYield: 0.2, wWander: 0.5, wEffort: 1 },
+      { ...targets, reserve: 0.35 * CAPACITY },
+    );
+    expect(decide(utility, indifferent)).toBe(OPTION.gather);
+    // But a well-fed indifferent Folk with nothing to gain is free to wander.
+    const fed = senses(
+      utility,
+      { wYield: 0.2, wWander: 0.5, wEffort: 1 },
+      { ...targets, reserve: 0.9 * CAPACITY, foodKcal: 20000 },
+    );
+    expect(decide(utility, fed)).toBe(OPTION.wander);
+  });
+
+  it('utility: a hungry Folk carrying food eats', () => {
+    const s = senses(utility, {}, { reserve: 0.1 * CAPACITY, foodKcal: 3000 });
+    expect(decide(utility, s)).toBe(OPTION.eat);
+  });
+
+  it('utility: an injured Folk with nothing to do prefers rest, a healthy one does not', () => {
+    const hurt = senses(utility, { wRest: 2, wWander: 0.1 }, { injury: 2 });
+    expect(decide(utility, hurt)).toBe(OPTION.rest);
+    const well = senses(utility, { wRest: 2, wWander: 0.1 }, { injury: 0 });
+    expect(decide(utility, well)).not.toBe(OPTION.rest);
   });
 
   it('utility: an injured Folk values slow work less', () => {
-    const targets = { targetTile: Int32Array.from([-1, 5, -1, -1, -1, -1, -1]), satiety: 60 };
+    const targets = {
+      targetTile: Int32Array.from([-1, 5, -1, -1, -1, -1, -1]),
+      reserve: 0.6 * CAPACITY,
+    };
     const scoreOf = (s: Senses): number => {
       const scores = new Float32Array(OPTION_COUNT);
       utility.decide(s, { option: 0, tile: 0 }, scores);

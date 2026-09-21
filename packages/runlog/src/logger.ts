@@ -6,15 +6,15 @@ import {
   COUNTER_NAMES,
   DECIDERS,
   FOLK_ACTIONS,
-  FORAGE_ACTIONS,
   GOODS_LIST,
-  INJURY,
   MAX_PARAMS,
   SPECIES_LIST,
   activityRows,
   carriedTotals,
   consumptionRows,
   folkCounters,
+  ledgerRows,
+  settingsToFile,
   sourceRows,
   speciesTotals,
   summarize,
@@ -22,6 +22,7 @@ import {
   type Sim,
   type SimEvent,
 } from '@folk/sim';
+import { hashSettings } from './config';
 
 const FLUSH_BYTES = 64 * 1024;
 
@@ -30,9 +31,11 @@ export interface RunLoggerOptions {
   outputDir?: string;
   /** Write an entity and resource snapshot every N ticks (default 10). */
   snapshotInterval?: number;
-  /** Write the heavier metrics (terrain food, activity, food sources) every N ticks (default 100). */
+  /** Write the heavier metrics (terrain food, activity, ledger, food sources) every N ticks (default 100). */
   metricsInterval?: number;
-  /** Extra fields recorded in the manifest (e.g. which decider was used). */
+  /** Where the settings came from, recorded in the manifest (e.g. the config file path). */
+  configPath?: string | null;
+  /** Extra fields recorded in the manifest. */
   extra?: Record<string, unknown>;
 }
 
@@ -92,7 +95,10 @@ class Buffered {
   }
 }
 
-/** Start logging a run to its own folder: manifest.json, events.jsonl, entities.csv, resources.csv. */
+/**
+ * Start logging a run to its own folder: manifest.json (with the full settings and their hash),
+ * events.jsonl, entities.csv, resources.csv, and the metrics tables.
+ */
 export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
   const outputDir = options.outputDir ?? defaultOutputDir();
   const snapshotInterval = Math.max(1, Math.floor(options.snapshotInterval ?? 10));
@@ -112,6 +118,7 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
     }
   }
   const id = dir.slice(outputDir.length + 1);
+  const settings = sim.settings;
 
   const manifestPath = join(dir, 'manifest.json');
   const manifest = {
@@ -120,19 +127,23 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
     endedAt: null as string | null,
     ticks: 0,
     seed: sim.config.seed,
+    configPath: options.configPath ?? null,
+    settingsHash: hashSettings(settings),
+    /** Everything tunable that this run used, in the same format as a configuration file. */
+    settings: settingsToFile(settings),
     world: sim.world.params,
-    ecologyInterval: sim.config.ecologyInterval ?? 1,
-    plantRegrowthScale: sim.config.plantRegrowthScale ?? 1,
     folkCount: sim.folk.count,
+    deciderMix: settings.folk.deciders,
+    /** Each decider's parameter names and the ranges used, in parameter-array order. */
+    deciders: settings.deciders.map((d) => ({
+      key: d.key,
+      params: d.params.map((p) => ({ key: p.key, label: p.label, min: p.min, max: p.max })),
+    })),
     emitMoves: sim.config.emitMoves ?? false,
     snapshotInterval,
     metricsInterval,
     timed: sim.perf !== null,
     species: SPECIES_LIST.map((s) => s.key),
-    deciders: DECIDERS.map((d) => ({ key: d.key, params: d.params })),
-    deciderMix: sim.config.deciders ?? DECIDERS.map((d) => d.key),
-    actions: FORAGE_ACTIONS,
-    injury: INJURY,
     goods: GOODS_LIST.map((g) => g.key),
     settlement: sim.folk.settlement,
     git: gitInfo(),
@@ -144,7 +155,7 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
   const events = new Buffered(join(dir, 'events.jsonl'));
   const entities = new Buffered(
     join(dir, 'entities.csv'),
-    'tick,id,x,y,satiety,health,energy,age,action,decider,injury,foraging,hunting' +
+    'tick,id,x,y,reserve,age,action,decider,injury,foraging,hunting' +
       GOODS_LIST.map((g) => `,inv_${g.key}`).join(''),
   );
   const resources = new Buffered(
@@ -157,33 +168,34 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
     join(dir, 'terrain_resources.csv'),
     'tick,terrain,species,tiles,habitable,stock,capacity',
   );
-  const activity = new Buffered(
-    join(dir, 'activity.csv'),
-    'tick,decider,action,folkTicks,energySpent,energyGained',
-  );
+  const activity = new Buffered(join(dir, 'activity.csv'), 'tick,decider,action,folkTicks,kcal');
+  const ledger = new Buffered(join(dir, 'ledger.csv'), 'tick,decider,category,kcal');
   const sources = new Buffered(
     join(dir, 'food_sources.csv'),
-    'tick,decider,species,terrain,attempts,successes,units,satiety',
+    'tick,decider,species,terrain,attempts,successes,kg,kcal',
   );
-  const consumption = new Buffered(join(dir, 'consumption.csv'), 'tick,decider,good,units,satiety');
+  const consumption = new Buffered(join(dir, 'consumption.csv'), 'tick,decider,good,kg,kcal');
   const lifetimes = new Buffered(
     join(dir, 'lifetimes.csv'),
     [
-      'id,decider,born,died,cause,lived',
+      'id,decider,born,died,cause,lived,startReserve,endReserve',
       ...COUNTER_NAMES,
       ...Array.from({ length: MAX_PARAMS }, (_, i) => `p${i}`),
     ].join(','),
   );
   /** Who each Folk is, from its spawn event, for the lifetime table. */
-  const born = new Map<number, { decider: string; tick: number; params: number[] }>();
+  const born = new Map<
+    number,
+    { decider: string; tick: number; reserve: number; params: number[] }
+  >();
 
   const writeEntities = (tick: number): void => {
     const f = sim.folk;
     const perGood = GOODS_LIST.length;
     for (let s = 0; s < f.count; s++) {
-      const inv = GOODS_LIST.map((_, g) => f.inventory[s * perGood + g]!.toFixed(2)).join(',');
+      const inv = GOODS_LIST.map((_, g) => f.inventory[s * perGood + g]!.toFixed(3)).join(',');
       entities.write(
-        `${tick},${f.id[s]},${f.x[s]},${f.y[s]},${f.satiety[s]!.toFixed(2)},${f.health[s]!.toFixed(2)},${f.energy[s]!.toFixed(2)},${f.age[s]},${FOLK_ACTIONS[f.action[s]!]},${DECIDERS[f.decider[s]!]!.key},${f.injury[s]},${f.foraging[s]!.toFixed(3)},${f.hunting[s]!.toFixed(3)},${inv}\n`,
+        `${tick},${f.id[s]},${f.x[s]},${f.y[s]},${f.reserve[s]!.toFixed(1)},${f.age[s]},${FOLK_ACTIONS[f.action[s]!]},${DECIDERS[f.decider[s]!]!.key},${f.injury[s]},${f.foraging[s]!.toFixed(3)},${f.hunting[s]!.toFixed(3)},${inv}\n`,
       );
     }
   };
@@ -205,37 +217,52 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
       );
     }
     for (const r of activityRows(sim.metrics)) {
-      activity.write(
-        `${tick},${r.decider},${r.action},${r.folkTicks},${num(r.energySpent)},${num(r.energyGained)}\n`,
-      );
+      activity.write(`${tick},${r.decider},${r.action},${r.folkTicks},${num(r.kcal)}\n`);
+    }
+    for (const r of ledgerRows(sim.metrics)) {
+      ledger.write(`${tick},${r.decider},${r.category},${num(r.kcal)}\n`);
     }
     for (const r of sourceRows(sim.metrics)) {
       sources.write(
-        `${tick},${r.decider},${r.species},${r.terrain},${r.attempts},${r.successes},${num(r.units)},${num(r.satiety)}\n`,
+        `${tick},${r.decider},${r.species},${r.terrain},${r.attempts},${r.successes},${num(r.kg)},${num(r.kcal)}\n`,
       );
     }
     for (const r of consumptionRows(sim.metrics)) {
-      consumption.write(`${tick},${r.decider},${r.good},${num(r.units)},${num(r.satiety)}\n`);
+      consumption.write(`${tick},${r.decider},${r.good},${num(r.kg)},${num(r.kcal)}\n`);
     }
   };
   const writeLifetime = (
     id: number,
     counters: Record<string, number>,
     lived: number,
+    endReserve: number,
     died: string,
     cause: string,
   ): void => {
     const who = born.get(id);
     const params = Array.from({ length: MAX_PARAMS }, (_, i) => who?.params[i] ?? '');
     lifetimes.write(
-      `${[id, who?.decider ?? '', who?.tick ?? '', died, cause, lived, ...COUNTER_NAMES.map((n) => counters[n] ?? 0), ...params].join(',')}\n`,
+      `${[
+        id,
+        who?.decider ?? '',
+        who?.tick ?? '',
+        died,
+        cause,
+        lived,
+        who ? who.reserve.toFixed(1) : '',
+        endReserve.toFixed(1),
+        ...COUNTER_NAMES.map((n) => counters[n] ?? 0),
+        ...params,
+      ].join(',')}\n`,
     );
   };
   const note = (e: SimEvent): void => {
     events.write(JSON.stringify(e) + '\n');
-    if (e.type === 'spawn')
-      born.set(e.folk, { decider: e.decider, tick: e.tick, params: e.params });
-    else if (e.type === 'die') writeLifetime(e.folk, e.stats, e.lived, String(e.tick), e.cause);
+    if (e.type === 'spawn') {
+      born.set(e.folk, { decider: e.decider, tick: e.tick, reserve: e.reserve, params: e.params });
+    } else if (e.type === 'die') {
+      writeLifetime(e.folk, e.stats, e.lived, 0, String(e.tick), e.cause);
+    }
   };
 
   let lastTick = -1;
@@ -262,7 +289,14 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
       }
       if (s.tick % metricsInterval !== 0) writeMetrics(s.tick);
       for (let slot = 0; slot < s.folk.count; slot++) {
-        writeLifetime(s.folk.id[slot]!, folkCounters(s.metrics, slot), s.folk.age[slot]!, '', '');
+        writeLifetime(
+          s.folk.id[slot]!,
+          folkCounters(s.metrics, slot),
+          s.folk.age[slot]!,
+          s.folk.reserve[slot]!,
+          '',
+          '',
+        );
       }
       const perf = s.perf;
       if (perf) {
@@ -281,6 +315,7 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
       resources.close();
       terrainRes.close();
       activity.close();
+      ledger.close();
       sources.close();
       consumption.close();
       lifetimes.close();

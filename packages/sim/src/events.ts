@@ -10,8 +10,20 @@ export type SimEvent =
       decider: string;
       /** The Folk's decider parameters, in the decider's parameter order. */
       params: number[];
+      /** Starting calorie reserve. */
+      reserve: number;
     }
-  | { tick: number; type: 'eat'; folk: number; x: number; y: number; food: number; satiety: number }
+  | {
+      tick: number;
+      type: 'eat';
+      folk: number;
+      x: number;
+      y: number;
+      kg: number;
+      kcal: number;
+      /** The reserve after eating. */
+      reserve: number;
+    }
   | {
       tick: number;
       type: 'gather';
@@ -19,7 +31,7 @@ export type SimEvent =
       x: number;
       y: number;
       species: string;
-      amount: number;
+      kg: number;
     }
   | {
       tick: number;
@@ -29,7 +41,7 @@ export type SimEvent =
       y: number;
       species: string;
       success: boolean;
-      meat: number;
+      kg: number;
     }
   | {
       tick: number;
@@ -48,7 +60,7 @@ export type SimEvent =
       x: number;
       y: number;
       cause: 'starvation' | 'injury';
-      /** Ticks the Folk lived, and its lifetime counters (meals, food by kind, energy spent, ...). */
+      /** Ticks the Folk lived, and its lifetime counters (meals, calories in and out, food by kind, ...). */
       lived: number;
       stats: Record<string, number>;
     }

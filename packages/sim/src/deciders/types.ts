@@ -1,3 +1,5 @@
+import type { Settings } from '../config';
+
 /** One tunable number in a decider's parameter array, with the range random starts are drawn from. */
 export interface ParamSpec {
   readonly key: string;
@@ -10,15 +12,15 @@ export interface ParamSpec {
 export interface Senses {
   x: number;
   y: number;
-  satiety: number;
-  health: number;
-  energy: number;
+  /** Calories in the reserve, the most it can hold, and its share of that. */
+  reserve: number;
+  capacity: number;
   /** 0 none, 1 minor, 2 serious. */
   injury: number;
-  /** Satiety the Folk would gain by eating everything it carries. */
-  foodSatiety: number;
-  /** Carry capacity left. */
-  room: number;
+  /** Calories the Folk would gain by eating everything it carries. */
+  foodKcal: number;
+  /** Carry capacity left, in kg. */
+  roomKg: number;
   foraging: number;
   hunting: number;
   /** True if the Folk was resting when it last acted. */
@@ -31,6 +33,8 @@ export interface Senses {
   /** Per option: tile of the nearest place the option can be done, or -1; and walking distance. */
   targetTile: Int32Array;
   targetDist: Int32Array;
+  /** The run's configuration: action costs and yields, goods, body. */
+  settings: Settings;
 }
 
 /** A decider's answer: what to do next and, for foraging, where. */
@@ -54,6 +58,7 @@ export interface DeciderDef {
   readonly name: string;
   /** Color of this decider's Folk on the map (0xRRGGBB). */
   readonly color: number;
+  /** Default parameter ranges; a run's configuration may change the min and max. */
   readonly params: readonly ParamSpec[];
   decide(senses: Senses, out: Intent, scores: Float32Array): void;
 }

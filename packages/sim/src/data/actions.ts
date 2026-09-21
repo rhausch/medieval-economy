@@ -18,8 +18,9 @@ export const PENDING_IDLE = 8;
 
 /**
  * A foraging action: work a species at the Folk's current tile for `ticks`, then resolve.
- * Plants always yield (take stock, gain `good`); animals succeed with a chance that grows
- * with skill (take one head, gain `yield` of `good`). Numbers are placeholders to tune by playing.
+ * Plants always yield `yield` kg (more with skill), taken from the tile's stock. Animals succeed
+ * with a chance that grows with skill; a kill removes one head and yields `yield` kg of edible meat.
+ * Numbers are defaults, adjustable per run in the configuration.
  */
 export interface ForageDef {
   readonly option: number;
@@ -33,10 +34,11 @@ export interface ForageDef {
   /** Good produced (key in the goods table). */
   readonly good: string;
   readonly ticks: number;
-  readonly energy: number;
-  /** A tile is worth working when the species stock is at least this. */
+  /** Calories burned per tick of this action, above the baseline metabolism. */
+  readonly kcalPerTick: number;
+  /** A tile is worth working when the species stock is at least this (kg for plants, head for animals). */
   readonly minStock: number;
-  /** Plants: units gathered at skill 0. Animals: units of good per kill. */
+  /** Plants: kg gathered at skill 0. Animals: kg of meat per kill. */
   readonly yield: number;
   /** Animals only: chance of a kill at skill 0. */
   readonly baseSuccess: number;
@@ -45,6 +47,10 @@ export interface ForageDef {
   readonly seriousInjury: number;
 }
 
+/**
+ * Costs follow real activity levels: 1 MET is the baseline of about 7.9 kcal per 6-minute tick, so an
+ * activity at 3 MET burns about 16 kcal per tick above baseline.
+ */
 export const FORAGE_ACTIONS: readonly ForageDef[] = [
   {
     option: OPTION.gather,
@@ -53,11 +59,11 @@ export const FORAGE_ACTIONS: readonly ForageDef[] = [
     species: 'berries',
     kind: 'plant',
     skill: 'foraging',
-    good: 'plantFood',
+    good: 'berries',
     ticks: 4,
-    energy: 0.5,
+    kcalPerTick: 16,
     minStock: 5,
-    yield: 3,
+    yield: 0.6,
     baseSuccess: 1,
     minorInjury: 0,
     seriousInjury: 0,
@@ -69,11 +75,11 @@ export const FORAGE_ACTIONS: readonly ForageDef[] = [
     species: 'roots',
     kind: 'plant',
     skill: 'foraging',
-    good: 'plantFood',
+    good: 'roots',
     ticks: 12,
-    energy: 3,
+    kcalPerTick: 36,
     minStock: 10,
-    yield: 14,
+    yield: 1.6,
     baseSuccess: 1,
     minorInjury: 0.03,
     seriousInjury: 0,
@@ -87,9 +93,9 @@ export const FORAGE_ACTIONS: readonly ForageDef[] = [
     skill: 'hunting',
     good: 'meat',
     ticks: 5,
-    energy: 0.5,
+    kcalPerTick: 16,
     minStock: 1,
-    yield: 3,
+    yield: 1.5,
     baseSuccess: 0.5,
     minorInjury: 0,
     seriousInjury: 0,
@@ -103,22 +109,11 @@ export const FORAGE_ACTIONS: readonly ForageDef[] = [
     skill: 'hunting',
     good: 'meat',
     ticks: 20,
-    energy: 6,
+    kcalPerTick: 87,
     minStock: 1,
-    yield: 20,
+    yield: 45,
     baseSuccess: 0.5,
     minorInjury: 0.15,
     seriousInjury: 0.05,
   },
 ];
-
-export function forageDef(option: number): ForageDef | undefined {
-  return FORAGE_ACTIONS.find((a) => a.option === option);
-}
-
-/** Skill gained per attempt, as a fraction of the distance to the maximum of 1. */
-export const SKILL_GAIN = 0.004;
-/** How much each point of skill adds to a plant yield multiplier or an animal success chance. */
-export const SKILL_YIELD_BONUS = 1;
-export const SKILL_SUCCESS_BONUS = 0.4;
-export const MAX_SUCCESS = 0.95;

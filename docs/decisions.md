@@ -165,3 +165,11 @@ Per-species patch coverage starts low (berries about 4% of habitable tiles, root
 ## 2026-09-20: Activities and costs are configured per run
 
 All costs, yields, speeds, densities and ranges live in a configuration file loaded at the start of a run (not adjustable during one); the resolved configuration and its hash are recorded in the manifest.
+
+## 2026-09-20: F1 built: calories and per-run configuration
+
+- One calorie reserve per Folk; baseline burn plus activity plus healing every tick; eating limited by room and intake per tick; energy conservation tested. Yields and costs are set from real-world anchors (1 MET is 7.9 kcal per tick), listed in `docs/foundation.md`.
+- The run configuration is a strict JSON overlay on built-in defaults: numbers only, collections keyed by name, unknown or protected settings rejected with the path, impossible values rejected, resolved settings and a hash written to the manifest, `configs/default.json` generated and tested against the code. Relative paths resolve from the directory the command was started in (npm runs workspace scripts from the package folder). Adding new goods, species or actions through the file is not supported yet.
+- The old `hungerScale` setting is gone: metabolism is `body.baselineKcalPerTick` in the configuration.
+- The utility decider needed two guarantees found by trace: eating must win in an emergency, and a hungry Folk short of food must forage, regardless of its random personality; before them, low-yield-weight, high-wander-weight Folk wandered until they starved. A regression test runs five seeds and requires no starvation in a food-rich world.
+- Known consequence of realistic calories: utility Folk favour snaring hare over gathering, and a deer kill is wasted beyond the 20 kg they can carry. Both are for F3 (sparse food) and later (sharing, storage, group hunting) to resolve.
