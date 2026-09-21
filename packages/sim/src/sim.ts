@@ -21,6 +21,10 @@ export interface SimConfig {
   folkCount?: number;
   /** Plant regrowth (and animal appetite) relative to the default; below 1 makes food scarcer. */
   plantRegrowthScale?: number;
+  /** Multiplies every species' patch coverage (more or less food). */
+  coverageScale?: number;
+  /** Animals graze their own forage instead of the berries and roots Folk gather. */
+  separateAnimalFood?: boolean;
   /** Decider keys handed out to Folk in turn. */
   deciders?: string[];
   /** Also emit a `move` event for every step (verbose; off by default). */
@@ -61,8 +65,16 @@ export function createSim(config: SimConfig): Sim {
       deciders: config.deciders ?? base.folk.deciders,
     },
     ecology: {
+      ...base.ecology,
       plantRegrowthScale: config.plantRegrowthScale ?? base.ecology.plantRegrowthScale,
       interval: Math.max(1, Math.floor(config.ecologyInterval ?? base.ecology.interval)),
+      coverageScale: config.coverageScale ?? base.ecology.coverageScale,
+      separateAnimalFood:
+        config.separateAnimalFood === undefined
+          ? base.ecology.separateAnimalFood
+          : config.separateAnimalFood
+            ? 1
+            : 0,
     },
     world: { ...base.world, seed: config.seed, ...config.world },
   };
@@ -73,6 +85,12 @@ export function createSim(config: SimConfig): Sim {
     world,
     createRng(config.seed ^ 0x51ed270b),
     scaleRegrowth(settings.species, settings.ecology.plantRegrowthScale),
+    {
+      seed: settings.world.seed,
+      coverageScale: settings.ecology.coverageScale,
+      separateAnimalFood: settings.ecology.separateAnimalFood === 1,
+      initialFill: settings.ecology.initialFill,
+    },
   );
   const folk = createFolkStore(world, ecology, rng, settings.folk.count, settings);
   const events: SimEvent[] = [];
@@ -126,12 +144,12 @@ export function createSim(config: SimConfig): Sim {
     step() {
       tick += 1;
       if (!perf) {
-        if (tick % interval === 0) stepEcology(world, ecology);
+        if (tick % interval === 0) stepEcology(world, ecology, interval);
         stepFolk(folkContext, tick);
         return;
       }
       const t0 = perf.timer();
-      if (tick % interval === 0) stepEcology(world, ecology);
+      if (tick % interval === 0) stepEcology(world, ecology, interval);
       const t1 = perf.timer();
       stepFolk(folkContext, tick);
       const t2 = perf.timer();

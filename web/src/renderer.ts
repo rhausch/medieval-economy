@@ -212,7 +212,7 @@ export class WorldView {
       data[i * 4] = r;
       data[i * 4 + 1] = g;
       data[i * 4 + 2] = b;
-      data[i * 4 + 3] = v === 0 ? 0 : 20 + Math.round((140 * (v - 1)) / 254);
+      data[i * 4 + 3] = v === 0 ? 0 : 110 + Math.round((140 * (v - 1)) / 254);
     }
     this.overlayCtx.putImageData(this.overlayImage, 0, 0);
     overlay.texture.source.update();
@@ -385,7 +385,7 @@ export class WorldView {
       for (let s = 0; s < this.species.length; s++) {
         const frame = this.frames[s];
         const info = this.species[s];
-        if (!frame || !info) continue;
+        if (!frame || !info || !info.food) continue;
         const slotX = 0.25 + 0.5 * (s % 2);
         const slotY = 0.25 + 0.5 * Math.floor(s / 2);
         for (let y = y0; y < y1; y++) {

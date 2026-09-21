@@ -42,7 +42,7 @@ describe('startRun', () => {
     expect(manifest.note).toBe('test');
     expect(manifest.world.width).toBe(48);
     expect(manifest.endedAt).not.toBeNull();
-    expect(manifest.species).toEqual(['berries', 'roots', 'hare', 'deer']);
+    expect(manifest.species).toEqual(['berries', 'roots', 'hare', 'deer', 'forage']);
     expect(manifest.goods).toEqual(['berries', 'roots', 'meat']);
     expect(manifest.deciders.map((d: { key: string }) => d.key)).toEqual(['rules', 'utility']);
     expect(manifest.deciders[0].params[0]).toMatchObject({ key: 'eatBelow', min: 0.15, max: 0.7 });
@@ -72,7 +72,7 @@ describe('startRun', () => {
 
     const resourceRows = readFileSync(join(log.dir, 'resources.csv'), 'utf8').trim().split('\n');
     expect(resourceRows[0]).toBe(
-      'tick,berries,roots,hare,deer,carried_berries,carried_roots,carried_meat',
+      'tick,berries,roots,hare,deer,forage,carried_berries,carried_roots,carried_meat',
     );
     expect(resourceRows).toHaveLength(1 + 11);
     expect(resourceRows[resourceRows.length - 1]!.startsWith('95,')).toBe(true);
@@ -127,11 +127,12 @@ describe('startRun', () => {
       'species',
       'tiles',
       'habitable',
+      'depleted',
       'stock',
       'capacity',
     ]);
-    // Snapshots at ticks 0, 50, ..., 400: 9 of them, 6 terrains x 4 species each.
-    expect(terrain.length - 1).toBe(9 * 6 * 4);
+    // Snapshots at ticks 0, 50, ..., 400: 9 of them, 6 terrains x 5 species each.
+    expect(terrain.length - 1).toBe(9 * 6 * 5);
 
     const activity = read('activity.csv');
     expect(activity[0]).toEqual(['tick', 'decider', 'action', 'folkTicks', 'kcal']);

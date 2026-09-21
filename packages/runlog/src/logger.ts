@@ -168,7 +168,7 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
   );
   const terrainRes = new Buffered(
     join(dir, 'terrain_resources.csv'),
-    'tick,terrain,species,tiles,habitable,stock,capacity',
+    'tick,terrain,species,tiles,habitable,depleted,stock,capacity',
   );
   const activity = new Buffered(join(dir, 'activity.csv'), 'tick,decider,action,folkTicks,kcal');
   const ledger = new Buffered(join(dir, 'ledger.csv'), 'tick,decider,category,kcal');
@@ -216,7 +216,7 @@ export function startRun(sim: Sim, options: RunLoggerOptions = {}): RunLogger {
   const writeMetrics = (tick: number): void => {
     for (const r of terrainResources(sim.world, sim.ecology)) {
       terrainRes.write(
-        `${tick},${r.terrain},${r.species},${r.tiles},${r.habitable},${r.stock.toFixed(1)},${r.capacity.toFixed(1)}\n`,
+        `${tick},${r.terrain},${r.species},${r.tiles},${r.habitable},${r.depleted},${r.stock.toFixed(1)},${r.capacity.toFixed(1)}\n`,
       );
     }
     for (const r of activityRows(sim.metrics)) {

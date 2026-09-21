@@ -75,7 +75,18 @@ export interface Settings {
   species: SpeciesDef[];
   /** Each decider's parameter ranges (the order matches the decider's parameter array). */
   deciders: { key: string; params: ParamSpec[] }[];
-  ecology: { plantRegrowthScale: number; interval: number };
+  ecology: {
+    /** Plant regrowth (and animal appetite) relative to the species table; below 1 is scarcer. */
+    plantRegrowthScale: number;
+    /** The ecology updates every this many ticks (its rates are per tick, so a step covers this many). */
+    interval: number;
+    /** Multiplies every species' patch coverage: above 1 is more food, below 1 less. */
+    coverageScale: number;
+    /** 1: hare and deer graze their own grass and browse; 0: they eat the berries and roots Folk gather. */
+    separateAnimalFood: number;
+    /** Each patch tile starts at a random share of its capacity between these. */
+    initialFill: { min: number; max: number };
+  };
   world: WorldParams;
 }
 
@@ -132,7 +143,13 @@ export function defaultSettings(): Settings {
     actions: clone([...FORAGE_ACTIONS]),
     species: clone([...SPECIES_LIST]),
     deciders: DECIDERS.map((d) => ({ key: d.key, params: clone([...d.params]) })),
-    ecology: { plantRegrowthScale: 1, interval: 1 },
+    ecology: {
+      plantRegrowthScale: 1,
+      interval: 10,
+      coverageScale: 1,
+      separateAnimalFood: 1,
+      initialFill: { min: 0.3, max: 1 },
+    },
     world: clone(DEFAULT_WORLD_PARAMS),
   };
 }
@@ -291,8 +308,33 @@ function validate(settings: Settings): void {
   if (settings.injury.durationMultiplier.some((m) => !(m >= 1))) {
     throw new ConfigError('injury.durationMultiplier values must be at least 1');
   }
-  if (!(settings.ecology.plantRegrowthScale > 0))
+  if (!(settings.ecology.plantRegrowthScale > 0)) {
     throw new ConfigError('ecology.plantRegrowthScale must be greater than 0');
+  }
+  if (!(settings.ecology.coverageScale > 0)) {
+    throw new ConfigError('ecology.coverageScale must be greater than 0');
+  }
+  if (settings.ecology.separateAnimalFood !== 0 && settings.ecology.separateAnimalFood !== 1) {
+    throw new ConfigError('ecology.separateAnimalFood must be 0 or 1');
+  }
+  const fill = settings.ecology.initialFill;
+  if (!(fill.min >= 0 && fill.max >= fill.min && fill.max <= 1)) {
+    throw new ConfigError('ecology.initialFill needs 0 <= min <= max <= 1');
+  }
+  for (const sp of settings.species) {
+    const bad = (what: string): never => {
+      throw new ConfigError(`species.${sp.key}.${what}`);
+    };
+    if (!(sp.coverage > 0 && sp.coverage <= 1)) bad('coverage must be above 0 and at most 1');
+    if (!(sp.patchScale > 0)) bad('patchScale must be greater than 0');
+    if (!(sp.patchRichness >= 0 && sp.patchRichness <= 1))
+      bad('patchRichness must be between 0 and 1');
+    if (!(sp.viability >= 0 && sp.viability < 1)) bad('viability must be at least 0 and below 1');
+    if (!(sp.growthRate >= 0 && sp.seedRate >= 0 && sp.diffusionRate >= 0)) {
+      bad('rates must not be negative');
+    }
+    if (!(sp.maxCapacity > 0)) bad('maxCapacity must be greater than 0');
+  }
   if (!(Number.isInteger(settings.ecology.interval) && settings.ecology.interval >= 1)) {
     throw new ConfigError('ecology.interval must be a whole number of at least 1');
   }

@@ -255,7 +255,12 @@ describe('calories', () => {
 describe('survival', () => {
   it('in a food-rich world nobody starves, whatever their random parameters', () => {
     for (const seed of [1, 2, 3, 4, 5]) {
-      const sim = createSim({ seed, world: { width: 96, height: 96, noiseScale: 30 } });
+      // Food everywhere (coverage far above 1), so this tests the deciders' survival guarantees, not the food supply.
+      const sim = createSim({
+        seed,
+        coverageScale: 1000,
+        world: { width: 96, height: 96, noiseScale: 30 },
+      });
       const deaths = run(sim, 2500).filter((e) => e.type === 'die');
       expect(deaths, `seed ${seed}`).toHaveLength(0);
     }

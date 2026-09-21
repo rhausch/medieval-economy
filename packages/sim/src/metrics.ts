@@ -242,6 +242,8 @@ export interface TerrainResourceRow {
   /** Tiles of this terrain, and how many of them can hold this species at all. */
   tiles: number;
   habitable: number;
+  /** Patch tiles whose stock has fallen below 5% of capacity (or below the species' viability level). */
+  depleted: number;
   stock: number;
   capacity: number;
 }
@@ -255,13 +257,18 @@ export function terrainResources(world: World, eco: Ecology): TerrainResourceRow
     const stock = new Float64Array(T);
     const capacity = new Float64Array(T);
     const habitable = new Float64Array(T);
+    const depleted = new Float64Array(T);
+    const floor = Math.max(species.viability, 0.05);
     const stockOf = eco.stock[s]!;
     const capOf = eco.capacity[s]!;
     for (let i = 0; i < world.terrain.length; i++) {
       const t = world.terrain[i]!;
       stock[t]! += stockOf[i]!;
       capacity[t]! += capOf[i]!;
-      if (capOf[i]! > 0) habitable[t]! += 1;
+      if (capOf[i]! > 0) {
+        habitable[t]! += 1;
+        if (stockOf[i]! < floor * capOf[i]!) depleted[t]! += 1;
+      }
     }
     TERRAIN_LIST.forEach((terrain, t) => {
       rows.push({
@@ -269,6 +276,7 @@ export function terrainResources(world: World, eco: Ecology): TerrainResourceRow
         species: species.key,
         tiles: tiles[t]!,
         habitable: habitable[t]!,
+        depleted: depleted[t]!,
         stock: stock[t]!,
         capacity: capacity[t]!,
       });
