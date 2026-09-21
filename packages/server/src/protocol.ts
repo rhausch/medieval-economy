@@ -1,4 +1,11 @@
-import type { ActivityRow, ConsumptionRow, SimEvent, SourceRow, WorldParams } from '@folk/sim';
+import type {
+  ActivityRow,
+  ConsumptionRow,
+  LedgerRow,
+  SimEvent,
+  SourceRow,
+  WorldParams,
+} from '@folk/sim';
 
 export interface TerrainInfo {
   id: number;
@@ -30,6 +37,10 @@ export interface WorldMessage {
   terrain: TerrainInfo[];
   species: SpeciesInfo[];
   deciders: DeciderInfo[];
+  /** Calorie reserve capacity and baseline burn per tick. */
+  body: { capacity: number; baseline: number };
+  /** Fingerprint of the run's configuration (see the manifest for the full settings). */
+  settingsHash: string;
   /** Plant regrowth relative to the default (below 1 means scarcer food). */
   plantRegrowthScale: number;
 }
@@ -77,6 +88,7 @@ export interface StatsMessage {
   carried: Record<string, number>;
   /** Cumulative since the run began. */
   activity: ActivityRow[];
+  ledger: LedgerRow[];
   sources: SourceRow[];
   consumption: ConsumptionRow[];
 }
@@ -113,9 +125,8 @@ export interface FolkInfo {
   x: number;
   y: number;
   action: string;
-  satiety: number;
-  health: number;
-  energy: number;
+  /** Calories in the reserve. */
+  reserve: number;
   /** Decider key and its map color. */
   decider: string;
   color: number;
@@ -139,9 +150,15 @@ export interface FolkDetailMessage {
     age: number;
     foraging: number;
     hunting: number;
-    inventory: { key: string; name: string; amount: number }[];
-    carried: number;
-    capacity: number;
+    inventory: { key: string; name: string; kg: number; kcal: number }[];
+    carriedKg: number;
+    capacityKg: number;
+    /** Calories burned per tick right now (baseline, current activity and healing). */
+    burnNow: number;
+    /** Lifetime calories eaten and burned, and meals eaten. */
+    kcalEaten: number;
+    kcalSpent: number;
+    meals: number;
     /** The decider's parameter array with each parameter's allowed range. */
     params: { key: string; label: string; value: number; min: number; max: number }[];
     injuryName: string;

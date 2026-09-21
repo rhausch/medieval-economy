@@ -26,7 +26,8 @@ TypeScript on Node 22, as a monorepo with npm workspaces:
 - The sim is pure TypeScript: no DOM, no I/O, no `Math.random` or `Date.now`. Timing is opt-in through an injected `timer`, and never affects simulation results. All randomness goes through a seeded RNG. Avoid `Math.exp`/`Math.pow` and similar where cross-engine determinism matters.
 - Data-oriented storage: tiles and Folk as typed-array columns (structure-of-arrays), not per-object graphs, so hot kernels stay small and portable (worker threads, WebGPU, or Rust/WASM later if profiling demands).
 - Fixed-timestep ticks. The client renders state and never mutates the sim. The server streams deltas filtered by viewport.
-- Economic rules and world content (terrain, species, goods, actions, policies) are data-driven tables, not hard-coded.
+- Economic rules and world content (terrain, species, goods, actions, policies) are data-driven tables, not hard-coded. Every number a run uses lives in the run configuration (`Settings`, loaded from JSON at the start of a run, fixed during it, and recorded with a hash in the manifest); the engine and deciders read `settings`, never module constants.
+- Units: a tick is 6 minutes, a tile 360 m, mass is kg, energy is kcal. A Folk lives on one calorie reserve.
 - Goods are conserved: produced, consumed, decayed, or traded, never created from nothing. Tests assert this.
 - Decision making is swappable behind `decide(senses, actions, blackboard) -> Intent`; every call is timed and logged. Design for stronger planners and group behaviour: decision cost is expected to dominate.
 - Design for extension: new goods, policies and behaviours are additions, not rewrites.
@@ -45,7 +46,7 @@ TypeScript on Node 22, as a monorepo with npm workspaces:
 
 - `npm install`: install all workspaces (also installs git hooks)
 - `npm run dev`: sim server (ws://localhost:8787) and web client (http://localhost:5173)
-- `npm run sim -- --seed 1 --ticks 1000`: headless run that writes a log to `experiments/output/<run-id>/`; options `--folk N`, `--size N`, `--regrowth X` (plant regrowth scale), `--deciders rules,utility`, `--snapshot-interval N`, `--metrics-interval N`, `--moves` (log every step), `--no-log`
+- `npm run sim -- --config configs/hard-times.json --seed 1 --ticks 1000`: headless run with an optional per-run configuration file (see `configs/README.md`); `CONFIG=path` does the same for the server. `npm run config:default` regenerates `configs/default.json` after a default changes that writes a log to `experiments/output/<run-id>/`; options `--folk N`, `--size N`, `--regrowth X` (plant regrowth scale), `--deciders rules,utility`, `--snapshot-interval N`, `--metrics-interval N`, `--moves` (log every step), `--no-log`
 - `npm run bench -- --folk 20,100,500,2000 --deciders rules,utility,mixed --size 256 --ticks 300`: benchmark; prints ticks/s, ms per tick split into ecology and Folk, decisions per tick and decision-time percentiles, and saves JSON to `experiments/output/`
 - `python3 scripts/summarize_run.py [run_dir]`: quick text summary of a run (standard library only; defaults to the newest)
 - `python3 scripts/analyze_run.py [run_dir]`: pandas and matplotlib analysis; prints the key tables and writes plots to `<run>/analysis/`. `notebooks/analyze_run.ipynb` is the same analysis for Jupyter. Needs `pip install pandas matplotlib`.

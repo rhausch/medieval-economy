@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createSim } from '@folk/sim';
+import { createSim, resolveSettings } from '@folk/sim';
 import { startRun } from './logger';
 
 const dirs: string[] = [];
@@ -17,18 +17,16 @@ function outputDir(): string {
 }
 
 const simConfig = { seed: 5, folkCount: 4, world: { width: 48, height: 40, noiseScale: 16 } };
+const GOODS = 3;
 
 describe('startRun', () => {
   it('writes a manifest, events, entity snapshots and resource totals', () => {
     const sim = createSim(simConfig);
-    sim.folk.satiety.fill(30);
-    for (let slot = 0; slot < sim.folk.count; slot++) sim.folk.inventory[slot * 2] = 10;
+    // Hungry Folk carrying meat, so there is eating to log.
+    sim.folk.reserve.fill(3000);
+    for (let slot = 0; slot < sim.folk.count; slot++) sim.folk.inventory[slot * GOODS + 2] = 5;
     const out = outputDir();
-    const log = startRun(sim, {
-      outputDir: out,
-      snapshotInterval: 10,
-      extra: { decider: 'rules' },
-    });
+    const log = startRun(sim, { outputDir: out, snapshotInterval: 10, extra: { note: 'test' } });
     log.record(sim);
     for (let i = 0; i < 95; i++) {
       sim.step();
@@ -41,16 +39,24 @@ describe('startRun', () => {
     expect(manifest.seed).toBe(5);
     expect(manifest.ticks).toBe(95);
     expect(manifest.folkCount).toBe(4);
-    expect(manifest.decider).toBe('rules');
+    expect(manifest.note).toBe('test');
     expect(manifest.world.width).toBe(48);
     expect(manifest.endedAt).not.toBeNull();
     expect(manifest.species).toEqual(['berries', 'roots', 'hare', 'deer']);
+    expect(manifest.goods).toEqual(['berries', 'roots', 'meat']);
+    expect(manifest.deciders.map((d: { key: string }) => d.key)).toEqual(['rules', 'utility']);
+    expect(manifest.deciders[0].params[0]).toMatchObject({ key: 'eatBelow', min: 0.15, max: 0.7 });
 
     const events = readFileSync(join(log.dir, 'events.jsonl'), 'utf8')
       .trim()
       .split('\n')
       .map((l) => JSON.parse(l));
-    expect(events.filter((e) => e.type === 'spawn')).toHaveLength(4);
+    const spawns = events.filter((e) => e.type === 'spawn');
+    expect(spawns).toHaveLength(4);
+    for (const e of spawns) {
+      expect(Array.isArray(e.params)).toBe(true);
+      expect(e.reserve).toBeGreaterThan(0);
+    }
     expect(events.some((e) => e.type === 'eat')).toBe(true);
     for (const e of events) expect(typeof e.tick).toBe('number');
 
@@ -59,18 +65,35 @@ describe('startRun', () => {
     // Snapshots at ticks 0, 10, ..., 90 plus a final one at 95, for 4 Folk each.
     expect(entityRows).toHaveLength(1 + 11 * 4);
     for (const row of entityRows.slice(1)) expect(row.split(',')).toHaveLength(header.length);
-    expect(header).toContain('inv_plantFood');
-    expect(header).toContain('decider');
-    expect(header).toContain('injury');
-    expect(manifest.deciders.map((d: { key: string }) => d.key)).toEqual(['rules', 'utility']);
-    expect(events.filter((e) => e.type === 'spawn').every((e) => Array.isArray(e.params))).toBe(
-      true,
-    );
+    for (const column of ['reserve', 'decider', 'injury', 'inv_berries', 'inv_meat']) {
+      expect(header).toContain(column);
+    }
+    expect(header).not.toContain('satiety');
 
     const resourceRows = readFileSync(join(log.dir, 'resources.csv'), 'utf8').trim().split('\n');
-    expect(resourceRows[0]).toBe('tick,berries,roots,hare,deer,carried_plantFood,carried_meat');
+    expect(resourceRows[0]).toBe(
+      'tick,berries,roots,hare,deer,carried_berries,carried_roots,carried_meat',
+    );
     expect(resourceRows).toHaveLength(1 + 11);
     expect(resourceRows[resourceRows.length - 1]!.startsWith('95,')).toBe(true);
+  });
+
+  it('records the full settings and a hash of them in the manifest', () => {
+    const read = (settings?: ReturnType<typeof resolveSettings>) => {
+      const sim = createSim({ ...simConfig, settings });
+      const log = startRun(sim, { outputDir: outputDir() });
+      log.close(sim);
+      return JSON.parse(readFileSync(join(log.dir, 'manifest.json'), 'utf8'));
+    };
+    const plain = read();
+    const tweaked = read(resolveSettings({ body: { baselineKcalPerTick: 9 } }));
+    expect(plain.settings.body.baselineKcalPerTick).toBe(7.9);
+    expect(tweaked.settings.body.baselineKcalPerTick).toBe(9);
+    expect(plain.settingsHash).toMatch(/^[0-9a-f]{16}$/);
+    expect(tweaked.settingsHash).not.toBe(plain.settingsHash);
+    expect(read().settingsHash).toBe(plain.settingsHash);
+    // The recorded settings are exactly what a configuration file would contain.
+    expect(resolveSettings(plain.settings)).toEqual(createSim(simConfig).settings);
   });
 
   it('keeps folders distinct when runs start in the same second', () => {
@@ -81,7 +104,7 @@ describe('startRun', () => {
     expect(readdirSync(out)).toHaveLength(2);
   });
 
-  it('writes terrain food, activity, sources, consumption, lifetimes and timing', () => {
+  it('writes terrain food, activity, ledger, sources, consumption, lifetimes and timing', () => {
     const sim = createSim({ ...simConfig, timer: () => performance.now() });
     const out = outputDir();
     const log = startRun(sim, { outputDir: out, metricsInterval: 50 });
@@ -111,17 +134,47 @@ describe('startRun', () => {
     expect(terrain.length - 1).toBe(9 * 6 * 4);
 
     const activity = read('activity.csv');
+    expect(activity[0]).toEqual(['tick', 'decider', 'action', 'folkTicks', 'kcal']);
     const last = activity.filter((row) => row[0] === '400');
     expect(last.length).toBe(2 * 8);
-    const folkTicks = last.reduce((sum, row) => sum + Number(row[3]), 0);
-    expect(folkTicks).toBe(4 * 400);
+    expect(last.reduce((sum, row) => sum + Number(row[3]), 0)).toBe(4 * 400);
 
+    const ledger = read('ledger.csv');
+    expect(ledger[0]).toEqual(['tick', 'decider', 'category', 'kcal']);
+    expect(new Set(ledger.slice(1).map((r) => r[2]))).toEqual(
+      new Set(['eaten', 'baseline', 'healing']),
+    );
+    const baseline = ledger
+      .filter((r) => r[0] === '400' && r[2] === 'baseline')
+      .reduce((sum, r) => sum + Number(r[3]), 0);
+    expect(baseline).toBeCloseTo(7.9 * 4 * 400, 1);
+
+    expect(read('food_sources.csv')[0]).toEqual([
+      'tick',
+      'decider',
+      'species',
+      'terrain',
+      'attempts',
+      'successes',
+      'kg',
+      'kcal',
+    ]);
     expect(read('food_sources.csv').length).toBeGreaterThan(1);
-    expect(read('consumption.csv').length).toBeGreaterThan(1);
+    expect(read('consumption.csv')[0]).toEqual(['tick', 'decider', 'good', 'kg', 'kcal']);
 
     const lifetimes = read('lifetimes.csv');
-    expect(lifetimes[0]!.slice(0, 6)).toEqual(['id', 'decider', 'born', 'died', 'cause', 'lived']);
-    expect(lifetimes[0]).toContain('meals');
+    expect(lifetimes[0]!.slice(0, 8)).toEqual([
+      'id',
+      'decider',
+      'born',
+      'died',
+      'cause',
+      'lived',
+      'startReserve',
+      'endReserve',
+    ]);
+    expect(lifetimes[0]).toContain('kcalEaten');
+    expect(lifetimes[0]).toContain('kcalSpent');
     expect(lifetimes[0]).toContain('p7');
     expect(lifetimes.length - 1).toBe(4);
     for (const row of lifetimes.slice(1)) expect(row).toHaveLength(lifetimes[0]!.length);

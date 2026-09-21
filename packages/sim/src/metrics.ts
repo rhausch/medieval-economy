@@ -10,13 +10,13 @@ import type { World } from './world';
 /** Per-Folk lifetime counters, stored per slot and reset when the slot gets a new Folk. */
 export const COUNTER_NAMES = [
   'meals',
-  'satietyEaten',
-  'plantUnits',
-  'meatUnits',
+  'kcalEaten',
+  'kcalSpent',
+  'plantKg',
+  'meatKg',
   'attempts',
   'successes',
   'injuries',
-  'energySpent',
   'steps',
 ] as const;
 export const COUNTER = Object.fromEntries(COUNTER_NAMES.map((name, i) => [name, i])) as Record<
@@ -26,7 +26,7 @@ export const COUNTER = Object.fromEntries(COUNTER_NAMES.map((name, i) => [name, 
 export const COUNTER_COUNT = COUNTER_NAMES.length;
 
 /** Fields recorded for each place food comes from. */
-export const SOURCE_FIELDS = ['attempts', 'successes', 'units', 'satiety'] as const;
+export const SOURCE_FIELDS = ['attempts', 'successes', 'kg', 'kcal'] as const;
 
 const D = DECIDERS.length;
 const A = FOLK_ACTIONS.length;
@@ -41,22 +41,29 @@ const G = GOODS_LIST.length;
 export interface Metrics {
   /** Folk-ticks spent on each action: [decider][action]. */
   readonly actionTicks: Float64Array;
-  /** Energy spent while doing each action, and energy regained by resting or idling. */
-  readonly energySpent: Float64Array;
-  readonly energyGained: Float64Array;
-  /** Where food came from: [decider][species][terrain][attempts, successes, units, satiety]. */
+  /**
+   * The energy ledger, in kcal out: [decider][baseline, healing, then one per action]. Activity
+   * entries are calories above baseline and can be negative (resting burns less than baseline).
+   */
+  readonly ledger: Float64Array;
+  /** Where food came from: [decider][species][terrain][attempts, successes, kg, kcal]. */
   readonly sources: Float64Array;
-  /** What was eaten: [decider][good][units, satiety]. */
+  /** What was eaten: [decider][good][kg, kcal] (this is the calories in). */
   readonly eaten: Float64Array;
   /** Per-Folk counters: [slot][COUNTER]. */
   readonly folk: Float64Array;
 }
 
+/** Ledger columns: baseline and healing first, then one column per action label. */
+export const LEDGER_BASELINE = 0;
+export const LEDGER_HEALING = 1;
+export const LEDGER_ACTIONS = 2;
+const LEDGER_SIZE = LEDGER_ACTIONS + A;
+
 export function createMetrics(folkCount: number): Metrics {
   return {
     actionTicks: new Float64Array(D * A),
-    energySpent: new Float64Array(D * A),
-    energyGained: new Float64Array(D * A),
+    ledger: new Float64Array(D * LEDGER_SIZE),
     sources: new Float64Array(D * S * T * SOURCE_FIELDS.length),
     eaten: new Float64Array(D * G * 2),
     folk: new Float64Array(folkCount * COUNTER_COUNT),
@@ -64,6 +71,8 @@ export function createMetrics(folkCount: number): Metrics {
 }
 
 export const actionIndex = (decider: number, action: number): number => decider * A + action;
+export const ledgerIndex = (decider: number, column: number): number =>
+  decider * LEDGER_SIZE + column;
 export const sourceIndex = (decider: number, species: number, terrain: number): number =>
   ((decider * S + species) * T + terrain) * SOURCE_FIELDS.length;
 export const eatenIndex = (decider: number, good: number): number => (decider * G + good) * 2;
@@ -81,23 +90,52 @@ export interface ActivityRow {
   decider: string;
   action: string;
   folkTicks: number;
-  energySpent: number;
-  energyGained: number;
+  /** Calories burned doing this above baseline (negative when below baseline). */
+  kcal: number;
 }
 
 export function activityRows(metrics: Metrics): ActivityRow[] {
   const rows: ActivityRow[] = [];
   DECIDERS.forEach((decider, d) => {
     FOLK_ACTIONS.forEach((action, a) => {
-      const i = actionIndex(d, a);
       rows.push({
         decider: decider.key,
         action,
-        folkTicks: metrics.actionTicks[i]!,
-        energySpent: metrics.energySpent[i]!,
-        energyGained: metrics.energyGained[i]!,
+        folkTicks: metrics.actionTicks[actionIndex(d, a)]!,
+        kcal: metrics.ledger[ledgerIndex(d, LEDGER_ACTIONS + a)]!,
       });
     });
+  });
+  return rows;
+}
+
+export interface LedgerRow {
+  decider: string;
+  /** `eaten` is calories in; `baseline` and `healing` are calories out (activities are in ActivityRow). */
+  category: 'eaten' | 'baseline' | 'healing';
+  kcal: number;
+}
+
+export function ledgerRows(metrics: Metrics): LedgerRow[] {
+  const rows: LedgerRow[] = [];
+  DECIDERS.forEach((decider, d) => {
+    let eaten = 0;
+    GOODS_LIST.forEach((_, g) => {
+      eaten += metrics.eaten[eatenIndex(d, g) + 1]!;
+    });
+    rows.push(
+      { decider: decider.key, category: 'eaten', kcal: eaten },
+      {
+        decider: decider.key,
+        category: 'baseline',
+        kcal: metrics.ledger[ledgerIndex(d, LEDGER_BASELINE)]!,
+      },
+      {
+        decider: decider.key,
+        category: 'healing',
+        kcal: metrics.ledger[ledgerIndex(d, LEDGER_HEALING)]!,
+      },
+    );
   });
   return rows;
 }
@@ -108,8 +146,8 @@ export interface SourceRow {
   terrain: string;
   attempts: number;
   successes: number;
-  units: number;
-  satiety: number;
+  kg: number;
+  kcal: number;
 }
 
 /** Rows with at least one attempt. */
@@ -126,8 +164,8 @@ export function sourceRows(metrics: Metrics): SourceRow[] {
           terrain: terrain.key,
           attempts: metrics.sources[i]!,
           successes: metrics.sources[i + 1]!,
-          units: metrics.sources[i + 2]!,
-          satiety: metrics.sources[i + 3]!,
+          kg: metrics.sources[i + 2]!,
+          kcal: metrics.sources[i + 3]!,
         });
       });
     });
@@ -138,8 +176,8 @@ export function sourceRows(metrics: Metrics): SourceRow[] {
 export interface ConsumptionRow {
   decider: string;
   good: string;
-  units: number;
-  satiety: number;
+  kg: number;
+  kcal: number;
 }
 
 export function consumptionRows(metrics: Metrics): ConsumptionRow[] {
@@ -151,8 +189,8 @@ export function consumptionRows(metrics: Metrics): ConsumptionRow[] {
       rows.push({
         decider: decider.key,
         good: good.key,
-        units: metrics.eaten[i]!,
-        satiety: metrics.eaten[i + 1]!,
+        kg: metrics.eaten[i]!,
+        kcal: metrics.eaten[i + 1]!,
       });
     });
   });
@@ -200,7 +238,7 @@ export function terrainResources(world: World, eco: Ecology): TerrainResourceRow
   return rows;
 }
 
-/** Units of each good currently carried by all Folk. */
+/** Kilograms of each good currently carried by all Folk. */
 export function carriedTotals(store: FolkStore): Record<string, number> {
   const out: Record<string, number> = {};
   GOODS_LIST.forEach((good, g) => {

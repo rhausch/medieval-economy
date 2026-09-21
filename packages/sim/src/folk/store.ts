@@ -1,8 +1,8 @@
+import type { Settings } from '../config';
 import { OPTION_COUNT, PENDING_NONE } from '../data/actions';
-import { FOLK } from '../data/folk';
 import { GOODS_LIST } from '../data/goods';
 import { TERRAIN_LIST } from '../data/terrain';
-import { DECIDERS, MAX_PARAMS } from '../deciders';
+import { MAX_PARAMS } from '../deciders/types';
 import type { Ecology } from '../ecology';
 import type { Rng } from '../rng';
 import type { World } from '../world';
@@ -13,15 +13,14 @@ export interface FolkStore {
   readonly id: Uint32Array;
   readonly x: Int32Array;
   readonly y: Int32Array;
-  readonly satiety: Float32Array;
-  readonly health: Float32Array;
-  readonly energy: Float32Array;
+  /** Calories in the reserve: the one number a Folk lives on. */
+  readonly reserve: Float32Array;
   readonly age: Uint32Array;
   readonly foraging: Float32Array;
   readonly hunting: Float32Array;
   /** Index into FOLK_ACTIONS. */
   readonly action: Uint8Array;
-  /** count x GOODS_LIST.length quantities, slot-major. */
+  /** count x GOODS_LIST.length kilograms, slot-major. */
   readonly inventory: Float32Array;
   /** Index into DECIDERS. */
   readonly decider: Uint8Array;
@@ -63,39 +62,46 @@ function plantFoodAt(eco: Ecology, i: number): number {
 }
 
 /** Best of several random walkable tiles near water, scored by the plant food around them. */
-function findSettlement(world: World, eco: Ecology, rng: Rng): { x: number; y: number } {
+function findSettlement(
+  world: World,
+  eco: Ecology,
+  rng: Rng,
+  settings: Settings['folk'],
+): { x: number; y: number } {
   const walkable = walkableTable();
   const { width, height, terrain } = world;
   const isWater = (x: number, y: number): boolean =>
     x >= 0 && y >= 0 && x < width && y < height && terrain[y * width + x] === 0;
   const nearWater = (x: number, y: number): boolean => {
-    const r = FOLK.settlementWaterDistance;
-    for (let dy = -r; dy <= r; dy++)
+    const r = settings.settlementWaterDistance;
+    for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) if (isWater(x + dx, y + dy)) return true;
+    }
     return false;
   };
   let best: { x: number; y: number } | null = null;
   let bestScore = -1;
   let evaluated = 0;
-  for (let attempt = 0; attempt < FOLK.settlementCandidates * 50; attempt++) {
+  for (let attempt = 0; attempt < settings.settlementCandidates * 50; attempt++) {
     const x = Math.floor(rng.next() * width);
     const y = Math.floor(rng.next() * height);
     if (!walkable[terrain[y * width + x]!] || !nearWater(x, y)) continue;
     let score = 0;
-    const r = FOLK.settlementScoreRadius;
+    const r = settings.settlementScoreRadius;
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
         const px = x + dx;
         const py = y + dy;
-        if (px >= 0 && py >= 0 && px < width && py < height)
+        if (px >= 0 && py >= 0 && px < width && py < height) {
           score += plantFoodAt(eco, py * width + px);
+        }
       }
     }
     if (score > bestScore) {
       bestScore = score;
       best = { x, y };
     }
-    if (++evaluated >= FOLK.settlementCandidates) break;
+    if (++evaluated >= settings.settlementCandidates) break;
   }
   if (best) return best;
   // No tile near water: fall back to the first walkable tile.
@@ -111,11 +117,11 @@ function spawnTile(
   walkable: Uint8Array,
   settlement: { x: number; y: number },
   rng: Rng,
+  radius: number,
 ) {
-  const r = FOLK.spawnRadius;
   for (let attempt = 0; attempt < 50; attempt++) {
-    const x = settlement.x + Math.floor(rng.next() * (2 * r + 1)) - r;
-    const y = settlement.y + Math.floor(rng.next() * (2 * r + 1)) - r;
+    const x = settlement.x + Math.floor(rng.next() * (2 * radius + 1)) - radius;
+    const y = settlement.y + Math.floor(rng.next() * (2 * radius + 1)) - radius;
     if (x < 0 || y < 0 || x >= world.width || y >= world.height) continue;
     if (walkable[world.terrain[y * world.width + x]!]) return { x, y };
   }
@@ -130,17 +136,16 @@ export function initFolk(
   rng: Rng,
   walkable: Uint8Array,
   deciderIndex: number,
-): { id: number; x: number; y: number; decider: string; params: number[] } {
-  const at = spawnTile(world, walkable, store.settlement, rng);
-  const decider = DECIDERS[deciderIndex]!;
+  settings: Settings,
+): { id: number; x: number; y: number; decider: string; params: number[]; reserve: number } {
+  const at = spawnTile(world, walkable, store.settlement, rng, settings.folk.spawnRadius);
+  const decider = settings.deciders[deciderIndex]!;
+  const { min, max } = settings.body.startReserveFraction;
   store.nextId += 1;
   store.id[slot] = store.nextId;
   store.x[slot] = at.x;
   store.y[slot] = at.y;
-  store.satiety[slot] =
-    FOLK.startSatiety.min + rng.next() * (FOLK.startSatiety.max - FOLK.startSatiety.min);
-  store.health[slot] = FOLK.maxStat;
-  store.energy[slot] = FOLK.maxStat;
+  store.reserve[slot] = settings.body.reserveCapacity * (min + rng.next() * (max - min));
   store.age[slot] = 0;
   store.foraging[slot] = 0;
   store.hunting[slot] = 0;
@@ -164,18 +169,29 @@ export function initFolk(
   store.pathPos[slot] = 0;
   store.scores.fill(Number.NaN, slot * OPTION_COUNT, (slot + 1) * OPTION_COUNT);
   store.choice[slot] = 0;
-  return { id: store.nextId, x: at.x, y: at.y, decider: decider.key, params };
+  return {
+    id: store.nextId,
+    x: at.x,
+    y: at.y,
+    decider: decider.key,
+    params,
+    reserve: store.reserve[slot]!,
+  };
 }
 
-export function createFolkStore(world: World, eco: Ecology, rng: Rng, count: number): FolkStore {
+export function createFolkStore(
+  world: World,
+  eco: Ecology,
+  rng: Rng,
+  count: number,
+  settings: Settings,
+): FolkStore {
   return {
     count,
     id: new Uint32Array(count),
     x: new Int32Array(count),
     y: new Int32Array(count),
-    satiety: new Float32Array(count),
-    health: new Float32Array(count),
-    energy: new Float32Array(count),
+    reserve: new Float32Array(count),
     age: new Uint32Array(count),
     foraging: new Float32Array(count),
     hunting: new Float32Array(count),
@@ -194,7 +210,7 @@ export function createFolkStore(world: World, eco: Ecology, rng: Rng, count: num
     pathPos: new Uint16Array(count),
     scores: new Float32Array(count * OPTION_COUNT),
     choice: new Uint8Array(count),
-    settlement: findSettlement(world, eco, rng),
+    settlement: findSettlement(world, eco, rng, settings.folk),
     nextId: 0,
   };
 }

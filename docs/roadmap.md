@@ -30,7 +30,7 @@ Findings that motivated the pivot are in `docs/decisions.md` ("Findings to tune 
 
 Planned in detail in `docs/foundation.md`.
 
-- [ ] **F1: calories and configuration.** One calorie reserve, metabolism, calorie costs for activities and injury healing, kg and kcal units, per-run configuration file recorded in the manifest, the energy ledger.
+- [x] **F1: calories and configuration** (in review). One calorie reserve, metabolism, calorie costs for activities and injury healing, kg and kcal units, per-run configuration file recorded in the manifest, the energy ledger.
 - [ ] **F2: movement and goals.** Gaits, terrain and slope speed and cost, goal on the blackboard with step-by-step walking and interrupts, path shown in the inspector.
 - [ ] **F3: patchy food.** Sparse clumped patches by species, slow recovery and overgrazing, the animal food experiment switch, active-tile ecology updates, world panel controls, sustainability sweep.
 - [ ] **F4: perception and memory.** Sight radii, blackboard sightings with age, explored map, explore option, deciders using memory, giving-up density.

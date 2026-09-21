@@ -3,11 +3,19 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { join } from 'node:path';
 import { parseArgs } from 'node:util';
-import { createSim, DECIDERS, resetPerf, summarize, type TimingSummary } from '@folk/sim';
-import { defaultOutputDir } from '@folk/runlog';
+import {
+  createSim,
+  DECIDERS,
+  resetPerf,
+  summarize,
+  type Settings,
+  type TimingSummary,
+} from '@folk/sim';
+import { defaultOutputDir, loadSettings } from '@folk/runlog';
 
 const { values } = parseArgs({
   options: {
+    config: { type: 'string' },
     folk: { type: 'string', default: '20,100,500,2000' },
     deciders: { type: 'string', default: 'rules,utility,mixed' },
     size: { type: 'string', default: '256' },
@@ -18,6 +26,13 @@ const { values } = parseArgs({
   },
 });
 
+let settings: Settings | undefined;
+try {
+  settings = values.config ? loadSettings(values.config) : undefined;
+} catch (error) {
+  console.error((error as Error).message);
+  process.exit(1);
+}
 const folkCounts = values.folk.split(',').map(Number);
 const modes = values.deciders.split(',');
 const size = Number(values.size);
@@ -48,6 +63,7 @@ function deciderKeys(mode: string): string[] {
 function bench(mode: string, folk: number): BenchRow {
   const sim = createSim({
     seed,
+    settings,
     folkCount: folk,
     deciders: deciderKeys(mode),
     world: { width: size, height: size },
@@ -132,7 +148,7 @@ writeFileSync(
       node: process.version,
       cpu: cpus()[0]?.model,
       cores: cpus().length,
-      settings: { size, ticks, warmup, seed, ecologyInterval },
+      settings: { size, ticks, warmup, seed, ecologyInterval, config: values.config ?? null },
       rows,
     },
     null,

@@ -27,6 +27,7 @@ const overlayEl = $<HTMLSelectElement>('overlay');
 const spritesEl = $<HTMLInputElement>('sprites');
 const totalsEl = $('totals');
 const decidersEl = $('deciders');
+const configEl = $('config');
 const statsView = createStatsView($('stats'));
 const folkDetailEl = $('folk-detail');
 
@@ -85,6 +86,8 @@ function showWorld(data: WorldData): void {
     );
   }
   deciders = data.meta.deciders;
+  reserveCapacity = data.meta.body.capacity;
+  configEl.textContent = `Configuration ${data.meta.settingsHash}`;
   decidersEl.replaceChildren(
     ...deciders.map((d) => {
       const li = document.createElement('li');
@@ -183,10 +186,12 @@ function showTile(t: TileMessage): void {
   view.select(t.x, t.y);
 }
 
-const STAT_MAX = 100;
 let selectedFolk: number | null = null;
+/** Calorie reserve capacity of this run, from the server. */
+let reserveCapacity = 15000;
 
-function bar(label: string, value: number, color: string): HTMLElement {
+/** A labelled bar filled to `fraction` (0 to 1), with `text` beside it. */
+function bar(label: string, fraction: number, color: string, text: string): HTMLElement {
   const row = document.createElement('div');
   row.className = 'bar-row';
   const name = document.createElement('span');
@@ -195,11 +200,11 @@ function bar(label: string, value: number, color: string): HTMLElement {
   const track = document.createElement('div');
   track.className = 'bar';
   const fill = document.createElement('span');
-  fill.style.width = `${Math.max(0, Math.min(100, (100 * value) / STAT_MAX))}%`;
+  fill.style.width = `${Math.max(0, Math.min(100, 100 * fraction))}%`;
   fill.style.background = color;
   track.append(fill);
   const number = document.createElement('span');
-  number.textContent = value.toFixed(0);
+  number.textContent = text;
   row.append(name, track, number);
   return row;
 }
@@ -208,17 +213,17 @@ function describeEvent(e: FolkDetailMessage['events'][number]): string {
   const at = `tick ${e.tick}:`;
   switch (e.type) {
     case 'eat':
-      return `${at} ate ${e.food.toFixed(1)} (satiety ${e.satiety.toFixed(0)})`;
+      return `${at} ate ${e.kg.toFixed(2)} kg (${e.kcal.toFixed(0)} kcal)`;
     case 'gather':
-      return `${at} gathered ${e.amount.toFixed(1)} ${e.species}`;
+      return `${at} gathered ${e.kg.toFixed(2)} kg ${e.species}`;
     case 'hunt':
       return e.success
-        ? `${at} killed ${e.species}, +${e.meat.toFixed(0)} meat`
+        ? `${at} killed ${e.species}, +${e.kg.toFixed(1)} kg meat`
         : `${at} missed a ${e.species}`;
     case 'injure':
       return `${at} ${e.severity} injury while trying to ${e.action}`;
     case 'heal':
-      return `${at} healed to ${e.severity === 'none' ? 'full health' : 'a minor injury'}`;
+      return `${at} healed to ${e.severity === 'none' ? 'no injury' : 'a minor injury'}`;
     case 'spawn':
       return `${at} appeared (${e.reason}, ${e.decider})`;
     case 'die':
@@ -261,12 +266,17 @@ function showFolk(msg: FolkDetailMessage): void {
 
   const inventory = document.createElement('div');
   inventory.className = 'muted';
-  const held = f.inventory.filter((item) => item.amount > 0);
+  const held = f.inventory.filter((item) => item.kg > 0.001);
   inventory.textContent =
     held.length > 0
-      ? `Carrying ${f.carried.toFixed(0)} / ${f.capacity}: ${held.map((i) => `${i.name} ${i.amount.toFixed(1)}`).join(', ')}`
-      : `Carrying nothing (capacity ${f.capacity})`;
+      ? `Carrying ${f.carriedKg.toFixed(1)} / ${f.capacityKg} kg: ${held.map((i) => `${i.name} ${i.kg.toFixed(1)} kg (${i.kcal.toFixed(0)} kcal)`).join(', ')}`
+      : `Carrying nothing (capacity ${f.capacityKg} kg)`;
   inventory.style.margin = '6px 0';
+
+  const energyLine = document.createElement('div');
+  energyLine.className = 'muted';
+  energyLine.textContent = `${f.reserve.toFixed(0)} kcal in reserve. Burning ${f.burnNow.toFixed(1)} kcal per tick. Lifetime: ate ${f.kcalEaten.toFixed(0)} kcal in ${f.meals} meals, burned ${f.kcalSpent.toFixed(0)} kcal.`;
+  energyLine.style.margin = '4px 0';
 
   const decider = deciders.find((d) => d.key === f.decider);
   const deciderLine = document.createElement('div');
@@ -340,9 +350,13 @@ function showFolk(msg: FolkDetailMessage): void {
   folkDetailEl.replaceChildren(
     title,
     deciderLine,
-    bar('Satiety', f.satiety, '#e0a030'),
-    bar('Health', f.health, '#d05050'),
-    bar('Energy', f.energy, '#4f9bd9'),
+    bar(
+      'Calories',
+      f.reserve / reserveCapacity,
+      '#e0a030',
+      `${((100 * f.reserve) / reserveCapacity).toFixed(0)}%`,
+    ),
+    energyLine,
     injuryLine,
     dl,
     inventory,

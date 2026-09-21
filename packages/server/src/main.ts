@@ -1,5 +1,5 @@
 import { WebSocketServer, type WebSocket } from 'ws';
-import { startRun, type RunLogger } from '@folk/runlog';
+import { hashSettings, loadSettings, startRun, type RunLogger } from '@folk/runlog';
 import {
   activityRows,
   carriedTotals,
@@ -8,16 +8,16 @@ import {
   terrainResources,
   createSim,
   DECIDERS,
-  INJURY,
+  INJURY_NAMES,
+  ledgerRows,
+  folkCounters,
+  type Settings,
   OPTION_COUNT,
   OPTION_NAMES,
-  FOLK,
-  GOODS_LIST,
   FOLK_ACTIONS,
   MAX_PARAMS,
   type SimEvent,
   speciesTotals,
-  SPECIES_LIST,
   terrainById,
   TERRAIN_LIST,
   type Sim,
@@ -32,9 +32,25 @@ const STATS_MS = 1000;
 const MAX_TILES = 4096 * 4096;
 const SPEEDS = [1, 2, 5, 10, 20];
 
-let plantRegrowthScale = Number(process.env.REGROWTH ?? 1);
+/** The run configuration: a file named by CONFIG, or the built-in defaults. */
+const configPath = process.env.CONFIG ?? null;
+let settings: Settings | undefined;
+try {
+  settings = configPath ? loadSettings(configPath) : undefined;
+} catch (error) {
+  console.error((error as Error).message);
+  process.exit(1);
+}
+let plantRegrowthScale = process.env.REGROWTH
+  ? Number(process.env.REGROWTH)
+  : (settings?.ecology.plantRegrowthScale ?? 1);
 const timer = (): number => performance.now();
-let sim: Sim = createSim({ seed: Number(process.env.SEED ?? 1), plantRegrowthScale, timer });
+let sim: Sim = createSim({
+  seed: Number(process.env.SEED ?? 1),
+  settings,
+  plantRegrowthScale,
+  timer,
+});
 
 let paused = false;
 let speed = 1;
@@ -46,7 +62,7 @@ const RECENT_PER_FOLK = 12;
 const RECENT_MAX_FOLK = 500;
 
 function beginRun(target: Sim): RunLogger {
-  const run = startRun(target, { extra: { source: 'server' } });
+  const run = startRun(target, { configPath, extra: { source: 'server' } });
   console.log(`logging run to ${run.dir}`);
   return run;
 }
@@ -86,9 +102,7 @@ function folkInfo(slot: number): FolkInfo {
     x: f.x[slot]!,
     y: f.y[slot]!,
     action: FOLK_ACTIONS[f.action[slot]!] ?? 'idle',
-    satiety: f.satiety[slot]!,
-    health: f.health[slot]!,
-    energy: f.energy[slot]!,
+    reserve: f.reserve[slot]!,
     decider: DECIDERS[f.decider[slot]!]!.key,
     color: DECIDERS[f.decider[slot]!]!.color,
     injury: f.injury[slot]!,
@@ -103,6 +117,14 @@ function folkMessage(): ServerMessage {
   };
 }
 
+/** Which foraging action key each work label in FOLK_ACTIONS comes from. */
+const ACTION_FOR_LABEL: Record<string, string> = {
+  gathering: 'gather',
+  digging: 'dig',
+  snaring: 'snare',
+  chasing: 'chase',
+};
+
 function sendFolkDetail(socket: WebSocket, id: number): void {
   const f = sim.folk;
   const slot = f.id.indexOf(id);
@@ -113,12 +135,21 @@ function sendFolkDetail(socket: WebSocket, id: number): void {
     );
     return;
   }
-  const perGood = GOODS_LIST.length;
-  const inventory = GOODS_LIST.map((g, k) => ({
+  const { goods, body, injury, activity } = sim.settings;
+  const inventory = goods.map((g, k) => ({
     key: g.key,
     name: g.name,
-    amount: f.inventory[slot * perGood + k]!,
+    kg: f.inventory[slot * goods.length + k]!,
+    kcal: f.inventory[slot * goods.length + k]! * (g.edible ? g.kcalPerKg : 0),
   }));
+  const counters = folkCounters(sim.metrics, slot);
+  const level = f.injury[slot]!;
+  const action = FOLK_ACTIONS[f.action[slot]!] ?? 'idle';
+  const actionCost =
+    action === 'idle' || action === 'moving' || action === 'eating' || action === 'resting'
+      ? activity[action]
+      : (sim.settings.actions.find((a) => a.key === ACTION_FOR_LABEL[action])?.kcalPerTick ?? 0);
+  const deciderSettings = sim.settings.deciders[f.decider[slot]!]!;
   const msg: ServerMessage = {
     type: 'folkDetail',
     id,
@@ -129,16 +160,21 @@ function sendFolkDetail(socket: WebSocket, id: number): void {
       foraging: f.foraging[slot]!,
       hunting: f.hunting[slot]!,
       inventory,
-      carried: inventory.reduce((sum, item, k) => sum + item.amount * GOODS_LIST[k]!.weight, 0),
-      capacity: FOLK.carryCapacity,
-      params: DECIDERS[f.decider[slot]!]!.params.map((spec, i) => ({
+      carriedKg: inventory.reduce((sum, item) => sum + item.kg, 0),
+      capacityKg: sim.settings.folk.carryCapacityKg,
+      burnNow:
+        body.baselineKcalPerTick + actionCost + (level > 0 ? injury.healKcalPerTick[level]! : 0),
+      kcalEaten: counters.kcalEaten!,
+      kcalSpent: counters.kcalSpent!,
+      meals: counters.meals!,
+      params: deciderSettings.params.map((spec, i) => ({
         key: spec.key,
         label: spec.label,
         value: f.params[slot * MAX_PARAMS + i]!,
         min: spec.min,
         max: spec.max,
       })),
-      injuryName: INJURY.names[f.injury[slot]!] ?? 'none',
+      injuryName: INJURY_NAMES[level] ?? 'none',
       injuryRemaining: f.injury[slot]! > 0 ? Math.max(0, f.injuryTimer[slot]!) : 0,
       chosen: OPTION_NAMES[f.choice[slot]!] ?? 'wander',
       scores: OPTION_NAMES.map((option, k) => ({
@@ -223,6 +259,7 @@ function buildStats(): StatsMessage {
     terrains,
     carried: carriedTotals(sim.folk),
     activity: activityRows(sim.metrics),
+    ledger: ledgerRows(sim.metrics),
     sources: sourceRows(sim.metrics),
     consumption: consumptionRows(sim.metrics),
   };
@@ -234,14 +271,19 @@ function sendWorld(socket: WebSocket): void {
     type: 'world',
     params: world.params,
     terrain: TERRAIN_LIST.map((t) => ({ id: t.id, key: t.key, name: t.name, color: t.color })),
-    deciders: DECIDERS.map((d) => ({
+    deciders: DECIDERS.map((d, i) => ({
       key: d.key,
       name: d.name,
       color: d.color,
-      params: [...d.params],
+      params: [...sim.settings.deciders[i]!.params],
     })),
+    body: {
+      capacity: sim.settings.body.reserveCapacity,
+      baseline: sim.settings.body.baselineKcalPerTick,
+    },
+    settingsHash: hashSettings(sim.settings),
     plantRegrowthScale,
-    species: SPECIES_LIST.map((s) => ({
+    species: sim.settings.species.map((s) => ({
       id: s.id,
       key: s.key,
       name: s.name,
@@ -320,6 +362,7 @@ function regenerate(params: Partial<WorldParams> & { plantRegrowthScale?: number
   }
   sim = createSim({
     seed: Number(params.seed ?? sim.config.seed),
+    settings,
     plantRegrowthScale,
     timer,
     world: { ...world, width, height },

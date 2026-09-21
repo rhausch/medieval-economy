@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -54,5 +55,53 @@ describe('run command', () => {
     const created = readdirSync(join(root, 'experiments/output')).filter((f) => !before.has(f));
     for (const f of created)
       rmSync(join(root, 'experiments/output', f), { recursive: true, force: true });
+  }, 60_000);
+
+  it('runs with a configuration file and records it in the manifest', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'folk-cli-config-'));
+    const config = join(dir, 'hungry.json');
+    writeFileSync(config, JSON.stringify({ body: { baselineKcalPerTick: 15.8 } }));
+    const before = new Set(readdirSync(join(root, 'experiments/output')));
+    const result = run('main.ts', [
+      '--config',
+      config,
+      '--seed',
+      '2',
+      '--ticks',
+      '40',
+      '--size',
+      '64',
+      '--folk',
+      '4',
+    ]);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain('hungry.json');
+    const folder = result.stdout.match(/log: (.*)/)?.[1];
+    const manifest = JSON.parse(readFileSync(join(folder!, 'manifest.json'), 'utf8'));
+    expect(manifest.settings.body.baselineKcalPerTick).toBe(15.8);
+    expect(manifest.configPath).toBe(config);
+    // 4 Folk for 40 ticks at 15.8 kcal per tick.
+    const ledger = readFileSync(join(folder!, 'ledger.csv'), 'utf8')
+      .trim()
+      .split('\n')
+      .map((l) => l.split(','))
+      .filter((r) => r[0] === '40' && r[2] === 'baseline')
+      .reduce((sum, r) => sum + Number(r[3]), 0);
+    expect(ledger).toBeCloseTo(15.8 * 4 * 40, 1);
+    for (const f of readdirSync(join(root, 'experiments/output')).filter((f) => !before.has(f))) {
+      rmSync(join(root, 'experiments/output', f), { recursive: true, force: true });
+    }
+    rmSync(dir, { recursive: true, force: true });
+  }, 60_000);
+
+  it('rejects a bad configuration with a clear message and no run', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'folk-cli-bad-'));
+    const config = join(dir, 'bad.json');
+    writeFileSync(config, JSON.stringify({ species: { unicorn: { maxCapacity: 1 } } }));
+    const result = run('main.ts', ['--config', config, '--ticks', '10', '--no-log']);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('bad.json');
+    expect(result.stderr).toContain('species.unicorn');
+    rmSync(dir, { recursive: true, force: true });
   }, 60_000);
 });

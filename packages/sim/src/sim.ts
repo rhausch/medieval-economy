@@ -1,37 +1,38 @@
-import { createRng, type Rng } from './rng';
-import { FOLK } from './data/folk';
+import { defaultSettings, type Settings } from './config';
+import { DECIDERS, deciderByKey } from './deciders';
+import { createEcology, scaleRegrowth, stepEcology, type Ecology } from './ecology';
 import type { SimEvent } from './events';
 import { createFolkContext, stepFolk } from './folk/behaviour';
 import { createFolkStore, initFolk, walkableTable, type FolkStore } from './folk/store';
 import { createMetrics, type Metrics } from './metrics';
 import { createPerf, type Perf } from './perf';
-import { createEcology, scaleRegrowth, stepEcology, type Ecology } from './ecology';
-import { SPECIES_LIST } from './data/species';
-import { DECIDERS, deciderByKey } from './deciders';
+import { createRng, type Rng } from './rng';
 import { generateWorld, type World, type WorldParams } from './world';
 
 export interface SimConfig {
   seed: number;
-  /** World generation overrides; the world seed defaults to the sim seed. */
+  /** The run's configuration (default: the built-in defaults). Load one with `resolveSettings`. */
+  settings?: Settings;
+  /** The options below override the corresponding values in `settings`. */
   world?: Partial<WorldParams>;
-  /** Run the ecology every N ticks (default 1); raise it for very large worlds. */
+  /** Run the ecology every N ticks; raise it for very large worlds. */
   ecologyInterval?: number;
-  /** Number of Folk, held constant: a Folk that dies is replaced (default 20). */
+  /** Number of Folk, held constant: a Folk that dies is replaced. */
   folkCount?: number;
   /** Plant regrowth (and animal appetite) relative to the default; below 1 makes food scarcer. */
   plantRegrowthScale?: number;
-  /** Clock for timing (e.g. `performance.now`). The sim never reads a clock itself; without one, no timing is recorded. */
-  timer?: () => number;
-  /** Multiplier on how fast Folk get hungry (1 = default). Higher makes food scarcer relative to need. */
-  hungerScale?: number;
-  /** Decider keys handed out to Folk in turn (default: every decider, evenly). */
+  /** Decider keys handed out to Folk in turn. */
   deciders?: string[];
   /** Also emit a `move` event for every step (verbose; off by default). */
   emitMoves?: boolean;
+  /** Clock for timing (e.g. `performance.now`). The sim never reads a clock itself; without one, no timing is recorded. */
+  timer?: () => number;
 }
 
 export interface Sim {
   readonly config: SimConfig;
+  /** The settings this sim actually runs with: the configuration with the options above applied. */
+  readonly settings: Settings;
   readonly rng: Rng;
   readonly world: World;
   readonly ecology: Ecology;
@@ -49,22 +50,34 @@ export interface Sim {
 }
 
 export function createSim(config: SimConfig): Sim {
+  const base = config.settings ?? defaultSettings();
+  const settings: Settings = {
+    ...base,
+    folk: {
+      ...base.folk,
+      count: config.folkCount ?? base.folk.count,
+      deciders: config.deciders ?? base.folk.deciders,
+    },
+    ecology: {
+      plantRegrowthScale: config.plantRegrowthScale ?? base.ecology.plantRegrowthScale,
+      interval: Math.max(1, Math.floor(config.ecologyInterval ?? base.ecology.interval)),
+    },
+    world: { ...base.world, seed: config.seed, ...config.world },
+  };
+
   const rng = createRng(config.seed);
-  const world = generateWorld({ seed: config.seed, ...config.world });
+  const world = generateWorld(settings.world);
   const ecology = createEcology(
     world,
     createRng(config.seed ^ 0x51ed270b),
-    scaleRegrowth(SPECIES_LIST, config.plantRegrowthScale ?? 1),
+    scaleRegrowth(settings.species, settings.ecology.plantRegrowthScale),
   );
-  const interval = Math.max(1, Math.floor(config.ecologyInterval ?? 1));
-  const folk = createFolkStore(world, ecology, rng, config.folkCount ?? FOLK.count);
+  const folk = createFolkStore(world, ecology, rng, settings.folk.count, settings);
   const events: SimEvent[] = [];
   const walkable = walkableTable();
-  const mix = (config.deciders ?? DECIDERS.map((d) => d.key)).map((key) =>
-    DECIDERS.indexOf(deciderByKey(key)),
-  );
+  const mix = settings.folk.deciders.map((key) => DECIDERS.indexOf(deciderByKey(key)));
   for (let slot = 0; slot < folk.count; slot++) {
-    const born = initFolk(folk, slot, world, rng, walkable, mix[slot % mix.length]!);
+    const born = initFolk(folk, slot, world, rng, walkable, mix[slot % mix.length]!, settings);
     events.push({
       tick: 0,
       type: 'spawn',
@@ -74,6 +87,7 @@ export function createSim(config: SimConfig): Sim {
       reason: 'initial',
       decider: born.decider,
       params: born.params,
+      reserve: born.reserve,
     });
   }
   const metrics = createMetrics(folk.count);
@@ -84,14 +98,16 @@ export function createSim(config: SimConfig): Sim {
     folk,
     metrics,
     perf,
+    settings,
     rng,
     events,
     config.emitMoves ?? false,
-    config.hungerScale ?? 1,
   );
+  const interval = settings.ecology.interval;
   let tick = 0;
   return {
     config,
+    settings,
     rng,
     world,
     ecology,

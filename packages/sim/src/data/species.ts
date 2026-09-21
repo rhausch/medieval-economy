@@ -2,7 +2,7 @@ import type { TERRAIN } from './terrain';
 
 /**
  * Species table. Plants and animals are per-tile stocks, not entities.
- * Plant stock is in food units; animal stock is in head (fractional).
+ * Plant stock is in kg per tile; animal stock is in head (fractional).
  * All rates are per ecology step.
  */
 interface SpeciesBase {
